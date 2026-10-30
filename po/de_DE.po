@@ -87,3 +87,63 @@ msgstr "  Effekt"
 
 msgid " Hide main menu entry"
 msgstr " Hauptmenüeintrag verstecken"
+
+msgid "no output plugin provides the video"
+msgstr "kein Ausgabeplugin liefert das Video"
+
+msgid "output device detached"
+msgstr "Ausgabegerät getrennt"
+
+msgid "switched off"
+msgstr "ausgeschaltet"
+
+msgid "video, %d images/s"
+msgstr "Video, %d Bilder/s"
+
+msgid "no video, the last image is kept"
+msgstr "kein Video, letztes Bild wird gehalten"
+
+msgid "no video, the leds are given back to Hyperion"
+msgstr "kein Video, LEDs an Hyperion zurückgegeben"
+
+msgid "no video, effect"
+msgstr "kein Video, Effekt"
+
+msgid "no video, dark"
+msgstr "kein Video, dunkel"
+
+msgid "disabled"
+msgstr "deaktiviert"
+
+msgid "State"
+msgstr "Status"
+
+msgid "Ambient light: %s"
+msgstr "Ambilight: %s"
+
+msgid "Output plugin: %s"
+msgstr "Ausgabeplugin: %s"
+
+msgid "leds on"
+msgstr "LEDs an"
+
+msgid "connected"
+msgstr "verbunden"
+
+msgid "not connected"
+msgstr "nicht verbunden"
+
+msgid "Hyperion server: %s, %s, priority %d%s"
+msgstr "Hyperion-Server: %s, %s, Priorität %d%s"
+
+msgid "Image: -"
+msgstr "Bild: -"
+
+msgid "Image: %s -> %dx%d, %d.%02d ms (max. %d.%02d ms)"
+msgstr "Bild: %s -> %dx%d, %d,%02d ms (max. %d,%02d ms)"
+
+msgid "Error: -"
+msgstr "Fehler: -"
+
+msgid "Error: %s (%s)"
+msgstr "Fehler: %s (%s)"

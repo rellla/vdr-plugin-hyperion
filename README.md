@@ -45,6 +45,8 @@ something changes):
 - Without video (radio), the leds can show an effect or stay dark (hyperion.IdleMode).
 - Without hyperion.LedsFollowAttach, the plugin doesn't switch the led device on at the start: a led
   device, which was switched off elsewhere (e.g. in the web interface), stays off.
+- The setup page shows the state of the ambient light, the output plugin, the connection, the
+  format of the frames with the time to read an image from a frame and the last error.
 - Like the video, the JSON commands apply to all running instances of Hyperion. Without a token,
   Hyperion only accepts them from the local network (and if "Local API authentication" is
   disabled, the default).

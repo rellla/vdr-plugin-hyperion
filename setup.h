@@ -12,7 +12,11 @@
 #ifndef __HYPERION_SETUP_H
 #define __HYPERION_SETUP_H
 
+#include <functional>
+#include <vector>
+
 #include <vdr/menuitems.h>
+#include <vdr/tools.h>
 
 #include "config.h"
 
@@ -50,7 +54,18 @@ private:
 	const char *m_offActions[2];    ///< texts of the switch off actions
 	const char *m_idleModes[3];     ///< texts of the modes without video
 
+	/// an item, whose text is updated, while the menu is shown
+	struct sLiveItem {
+		cOsdItem *item;
+		std::function<cString(void)> text;
+	};
+	static constexpr int LIVE_UPDATE_INTERVAL_MS = 1000; ///< update interval of the state
+	std::vector<sLiveItem> m_liveItems;                  ///< state items of the shown menu
+	cTimeMs m_liveUpdateTimer;                           ///< timer for the next update of the state
+
 	void Create(void);
+	void AddLiveItem(std::function<cString(void)>);
+	void UpdateLiveItems(void);
 };
 
 #endif

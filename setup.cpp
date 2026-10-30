@@ -9,11 +9,31 @@
  * @license{AGPL-3.0-or-later}
  */
 
+#include <ctime>
+
 #include <vdr/i18n.h>
 #include <vdr/tools.h>
 
 #include "client.h"
 #include "setup.h"
+
+/**
+ * Describe the state of the ambient light
+ */
+static cString StateText(const sHyperionStats &stats)
+{
+	switch (stats.state) {
+		case sHyperionStats::STATE_NO_OUTPUT: return tr("no output plugin provides the video");
+		case sHyperionStats::STATE_DETACHED:  return tr("output device detached");
+		case sHyperionStats::STATE_OFF:       return tr("switched off");
+		case sHyperionStats::STATE_VIDEO:     return cString::sprintf(tr("video, %d images/s"), stats.imagesPerSecond);
+		case sHyperionStats::STATE_KEPT:      return tr("no video, the last image is kept");
+		case sHyperionStats::STATE_RELEASED:  return tr("no video, the leds are given back to Hyperion");
+		case sHyperionStats::STATE_EFFECT:    return tr("no video, effect");
+		case sHyperionStats::STATE_DARK:      return tr("no video, dark");
+		default:                              return tr("disabled");
+	}
+}
 
 /**
  * Create the setup page
@@ -52,6 +72,7 @@ void cMenuSetupHyperion::Create(void)
 {
 	int current = Current();
 	Clear();
+	m_liveItems.clear();
 
 	Add(new cMenuEditBoolItem(tr("Send video to Hyperion"), &m_enable, trVDR("no"), trVDR("yes")));
 	if (m_enable) {
@@ -68,10 +89,79 @@ void cMenuSetupHyperion::Create(void)
 		if (m_idleMode == sHyperionConfig::IDLE_EFFECT)
 			Add(new cMenuEditStrItem(tr("  Effect"), m_idleEffect, sizeof(m_idleEffect)));
 		Add(new cMenuEditBoolItem(tr(" Hide main menu entry"), &m_hideMainMenuEntry, trVDR("no"), trVDR("yes")));
+
+		// state
+		Add(new cOsdItem(" ", osUnknown, false));
+		Add(new cOsdItem(cString::sprintf("%s:", tr("State")), osUnknown, false));
+		AddLiveItem([this]() {
+			sHyperionStats stats;
+			m_pClient->GetStats(&stats);
+			return cString::sprintf(tr("Ambient light: %s"), *StateText(stats));
+		});
+		AddLiveItem([this]() {
+			sHyperionStats stats;
+			m_pClient->GetStats(&stats);
+			return cString::sprintf(tr("Output plugin: %s"), stats.output.empty() ? "-" : stats.output.c_str());
+		});
+		AddLiveItem([this]() {
+			sHyperionStats stats;
+			m_pClient->GetStats(&stats);
+			cString leds = stats.ledDevice < 0 ? cString("") : cString::sprintf(", %s", stats.ledDevice ? tr("leds on") : tr("leds off"));
+			return cString::sprintf(tr("Hyperion server: %s, %s, priority %d%s"), stats.server.c_str(),
+				stats.connected ? tr("connected") : tr("not connected"), stats.priority, *leds);
+		});
+		AddLiveItem([this]() {
+			sHyperionStats stats;
+			m_pClient->GetStats(&stats);
+			if (stats.format.empty())
+				return cString(tr("Image: -"));
+			return cString::sprintf(tr("Image: %s -> %dx%d, %d.%02d ms (max. %d.%02d ms)"), stats.format.c_str(), stats.width, stats.height,
+				stats.sampleUsAvg / 1000, stats.sampleUsAvg % 1000 / 10, stats.sampleUsMax / 1000, stats.sampleUsMax % 1000 / 10);
+		});
+		AddLiveItem([this]() {
+			sHyperionStats stats;
+			m_pClient->GetStats(&stats);
+			if (stats.lastError.empty())
+				return cString(tr("Error: -"));
+			struct tm tm;
+			char t[16];
+			strftime(t, sizeof(t), "%H:%M:%S", localtime_r(&stats.lastErrorTime, &tm));
+			return cString::sprintf(tr("Error: %s (%s)"), stats.lastError.c_str(), t);
+		});
+		m_liveUpdateTimer.Set(LIVE_UPDATE_INTERVAL_MS);
 	}
 
 	SetCurrent(Get(current));
 	Display();
+}
+
+/**
+ * Add an item, whose text is updated, while the menu is shown
+ */
+void cMenuSetupHyperion::AddLiveItem(std::function<cString(void)> text)
+{
+	cOsdItem *item = new cOsdItem(text(), osUnknown, false);
+	Add(item);
+	m_liveItems.push_back({ item, std::move(text) });
+}
+
+/**
+ * Update the texts of the state items
+ */
+void cMenuSetupHyperion::UpdateLiveItems(void)
+{
+	bool changed = false;
+
+	for (auto &live : m_liveItems) {
+		cString text = live.text();
+		if (strcmp(text, live.item->Text())) {
+			live.item->SetText(text);
+			changed = true;
+		}
+	}
+
+	if (changed)
+		Display();
 }
 
 /**
@@ -86,6 +176,12 @@ eOSState cMenuSetupHyperion::ProcessKey(eKeys key)
 
 	if (key != kNone && (oldEnable != m_enable || oldIdleMode != m_idleMode))
 		Create();
+
+	// update the state, while the menu is shown
+	if (key == kNone && !HasSubMenu() && !m_liveItems.empty() && m_liveUpdateTimer.TimedOut()) {
+		UpdateLiveItems();
+		m_liveUpdateTimer.Set(LIVE_UPDATE_INTERVAL_MS);
+	}
 
 	return state;
 }

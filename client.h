@@ -15,6 +15,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <ctime>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -24,6 +25,39 @@
 #include "config.h"
 
 class cPlugin;
+
+/**
+ * Statistics of the client (shown in the setup)
+ */
+struct sHyperionStats {
+	/// what the leds show
+	enum eState {
+		STATE_DISABLED,                 ///< disabled in the setup
+		STATE_NO_OUTPUT,                ///< no output plugin provides the image
+		STATE_DETACHED,                 ///< the output device is detached
+		STATE_OFF,                      ///< switched off by the user
+		STATE_VIDEO,                    ///< the video is sent
+		STATE_KEPT,                     ///< no video for a moment (e.g. channel switch), the last image is kept
+		STATE_RELEASED,                 ///< no video, the leds are given back to Hyperion
+		STATE_EFFECT,                   ///< no video, the idle effect is shown
+		STATE_DARK,                     ///< no video, the leds are dark
+	};
+
+	int state = STATE_DISABLED;         ///< see eState
+	std::string output;                 ///< name of the output plugin (empty: none)
+	bool connected = false;             ///< connected to the flatbuffers server
+	std::string server;                 ///< host:port of the flatbuffers server
+	int priority = 0;                   ///< priority of the input
+	int ledDevice = -1;                 ///< state of the led device set by the plugin (-1: not switched)
+	int imagesPerSecond = 0;            ///< sent video images per second
+	std::string format;                 ///< format of the frames (empty: none read yet)
+	int width = 0;                      ///< width of the sent image
+	int height = 0;                     ///< height of the sent image
+	int sampleUsAvg = 0;                ///< average time to read an image from a frame (microseconds)
+	int sampleUsMax = 0;                ///< max. time to read an image from a frame (microseconds)
+	std::string lastError;              ///< last error (empty: none)
+	time_t lastErrorTime = 0;           ///< time of the last error
+};
 
 /**
  * Hyperion Client
@@ -47,6 +81,7 @@ public:
 	void Configure(const sHyperionConfig &);
 	void SetOn(bool);
 	bool IsOn(void) const { return m_on; }      ///< false, if the user switched the ambient light off
+	void GetStats(sHyperionStats *);
 	void Stop(void);
 
 protected:
@@ -64,6 +99,7 @@ private:
 	static constexpr int PROVIDER_RETRY_MS = 5000;     ///< look for the output plugin again after this time
 	static constexpr int JSON_TIMEOUT_MS = 1500;       ///< max. time for a JSON request (connect, send, replies)
 	static constexpr int JSON_RETRY_MS = 5000;         ///< retry a failed JSON request after this time
+	static constexpr int STATS_INTERVAL_MS = 1000;     ///< interval of the images/s and sampling time statistics
 	static constexpr const char *ORIGIN = "VDR";       ///< name of the input in Hyperion
 
 	// configuration (written by the setup, read by the thread)
@@ -101,6 +137,16 @@ private:
 	uint64_t m_jsonRetryAtMs = 0;                      ///< earliest time of the next JSON request after an error
 	std::string m_lastJsonError;                       ///< last logged JSON error
 	int m_jsonTan = 0;                                 ///< last used tan of a JSON request
+	std::string m_lastReadError;                       ///< last logged error of the output plugin
+
+	// statistics (written by the client thread, read by the setup)
+	std::mutex m_statsMutex;                           ///< protects m_stats
+	sHyperionStats m_stats;                            ///< the statistics
+	uint64_t m_statsWindowStartMs = 0;                 ///< start of the current statistics interval
+	int m_statsImages = 0;                             ///< sent video images in the current interval
+	int64_t m_statsSampleUsSum = 0;                    ///< sum of the sampling times in the current interval
+	int m_statsSampleUsMax = 0;                        ///< max. sampling time in the current interval
+	int m_statsSamples = 0;                            ///< read images in the current interval
 
 	void Wait(int);
 	bool FindProvider(uint64_t);
@@ -117,6 +163,8 @@ private:
 	bool Send(const std::vector<uint8_t> &);
 	bool SendImage(void);
 	void ReceiveReplies(void);
+	void SetError(const std::string &);
+	void UpdateStats(uint64_t);
 };
 
 #endif

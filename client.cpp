@@ -141,6 +141,8 @@ void cHyperionClient::Action(void)
 	dsyslog("hyperion: thread started");
 
 	while (Running()) {
+		UpdateStats(NowMs());
+
 		sHyperionConfig config;
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
@@ -215,6 +217,7 @@ void cHyperionClient::Action(void)
 
 		if (!m_pProvider->Service(AMBIENTIMAGE_SERVICE, &req)) {
 			esyslog("hyperion: the output plugin rejected the request");
+			SetError("the output plugin rejected the request");
 			m_pProvider = nullptr;
 			m_providerRetryAtMs = NowMs() + PROVIDER_RETRY_MS;
 			continue;
@@ -234,6 +237,16 @@ void cHyperionClient::Action(void)
 		if (req.flags & AMBIENT_NEW_IMAGE) {
 			m_idleSinceMs = 0;
 			m_idleShown = false;
+			m_lastReadError.clear();
+			m_statsSampleUsSum += req.sampleUs;
+			m_statsSampleUsMax = std::max(m_statsSampleUsMax, req.sampleUs);
+			m_statsSamples++;
+			{
+				std::lock_guard<std::mutex> lock(m_statsMutex);
+				m_stats.format = req.format;
+				m_stats.width = req.imageWidth;
+				m_stats.height = req.imageHeight;
+			}
 
 			// leave the idle state
 			if (m_effectActive)
@@ -254,7 +267,16 @@ void cHyperionClient::Action(void)
 			if (IsConnected() && SendImage()) {
 				m_imageSent = true;
 				m_lastSendMs = now;
+				m_statsImages++;
 			}
+		} else if ((req.flags & AMBIENT_VIDEO) && req.format[0]) {
+			// a frame was taken, but the output plugin can't read it
+			std::string error = std::string("the output plugin can't read the frame (") + req.format + ")";
+			if (error != m_lastReadError) {
+				esyslog("hyperion: %s", error.c_str());
+				SetError(error);
+			}
+			m_lastReadError = error;
 		} else if (!(req.flags & AMBIENT_VIDEO) && !m_idleSinceMs && !m_idleShown) {
 			m_idleSinceMs = now;
 		}
@@ -311,14 +333,16 @@ bool cHyperionClient::FindProvider(uint64_t now)
 
 	m_pProvider = cPluginManager::CallFirstService(AMBIENTIMAGE_SERVICE);
 	if (!m_pProvider) {
-		if (!m_providerErrorLogged)
+		if (!m_providerErrorLogged) {
 			esyslog("hyperion: no output plugin provides the service %s (e.g. drmdevice)", AMBIENTIMAGE_SERVICE);
+			SetError(*cString::sprintf("no output plugin provides the service %s", AMBIENTIMAGE_SERVICE));
+		}
 		m_providerErrorLogged = true;
 		m_providerRetryAtMs = now + PROVIDER_RETRY_MS;
 		return false;
 	}
 
-	isyslog("hyperion: the plugin %s provides the image of the video", m_pProvider->Name());
+	isyslog("hyperion: the plugin %s provides the image of the video", m_pProvider->Name() ? m_pProvider->Name() : "?");
 	m_providerErrorLogged = false;
 	m_rgb.resize(640 * 640 * 3);
 	return true;
@@ -521,6 +545,7 @@ bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool
 		if (error != m_lastJsonError)
 			esyslog("hyperion: request to the JSON server %s:%d failed: %s", m_activeConfig.host.c_str(), m_activeConfig.jsonPort, error.c_str());
 		m_lastJsonError = error;
+		SetError("JSON server: " + error);
 		m_jsonRetryAtMs = NowMs() + JSON_RETRY_MS;
 		return false;
 	}
@@ -528,6 +553,74 @@ bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool
 	m_lastJsonError.clear();
 	m_jsonRetryAtMs = 0;
 	return true;
+}
+
+/**
+ * Get the statistics (for the setup)
+ */
+void cHyperionClient::GetStats(sHyperionStats *stats)
+{
+	std::lock_guard<std::mutex> lock(m_statsMutex);
+	*stats = m_stats;
+}
+
+/**
+ * Remember an error for the statistics
+ */
+void cHyperionClient::SetError(const std::string &error)
+{
+	std::lock_guard<std::mutex> lock(m_statsMutex);
+	m_stats.lastError = error;
+	m_stats.lastErrorTime = time(nullptr);
+}
+
+/**
+ * Update the statistics (once per loop of the client thread)
+ */
+void cHyperionClient::UpdateStats(uint64_t now)
+{
+	int state;
+	if (!m_activeConfig.enable)
+		state = sHyperionStats::STATE_DISABLED;
+	else if (!m_pProvider)
+		state = sHyperionStats::STATE_NO_OUTPUT;
+	else if (!m_attached)
+		state = sHyperionStats::STATE_DETACHED;
+	else if (!m_on)
+		state = sHyperionStats::STATE_OFF;
+	else if (m_effectActive)
+		state = sHyperionStats::STATE_EFFECT;
+	else if (m_idleColorShown)
+		state = sHyperionStats::STATE_DARK;
+	else if (m_idleSinceMs)
+		state = m_imageSent ? sHyperionStats::STATE_KEPT : sHyperionStats::STATE_RELEASED;
+	else if (m_idleShown)
+		state = sHyperionStats::STATE_RELEASED;
+	else
+		state = sHyperionStats::STATE_VIDEO;    // also, if Hyperion isn't reachable (see connected)
+
+	std::lock_guard<std::mutex> lock(m_statsMutex);
+	m_stats.state = state;
+	const char *output = m_pProvider ? m_pProvider->Name() : nullptr;
+	m_stats.output = output ? output : "";
+	m_stats.connected = IsConnected();
+	m_stats.server = *cString::sprintf("%s:%d", m_activeConfig.host.c_str(), m_activeConfig.port);
+	m_stats.priority = m_activeConfig.priority;
+	m_stats.ledDevice = ControlsLedDevice(m_activeConfig) ? m_ledDeviceState : -1;
+
+	uint64_t elapsed = now - m_statsWindowStartMs;
+	if (elapsed >= STATS_INTERVAL_MS) {
+		m_stats.imagesPerSecond = (int)((m_statsImages * 1000 + elapsed / 2) / elapsed);
+		if (m_statsSamples) {
+			m_stats.sampleUsAvg = (int)(m_statsSampleUsSum / m_statsSamples);
+			m_stats.sampleUsMax = m_statsSampleUsMax;
+		}
+		m_statsWindowStartMs = now;
+		m_statsImages = 0;
+		m_statsSampleUsSum = 0;
+		m_statsSampleUsMax = 0;
+		m_statsSamples = 0;
+	}
 }
 
 /**
@@ -628,6 +721,7 @@ bool cHyperionClient::Connect(void)
 			esyslog("hyperion: cannot connect to %s:%d (%d): %s, retrying in the background",
 				m_activeConfig.host.c_str(), m_activeConfig.port, err, strerror(err));
 		m_connectErrorLogged = true;
+		SetError(*cString::sprintf("cannot connect to %s:%d (%s)", m_activeConfig.host.c_str(), m_activeConfig.port, strerror(err)));
 		return false;
 	}
 
@@ -689,6 +783,7 @@ bool cHyperionClient::Send(const std::vector<uint8_t> &msg)
 		if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
 			int err = errno;
 			esyslog("hyperion: send to %s:%d failed (%d): %s", m_activeConfig.host.c_str(), m_activeConfig.port, err, strerror(err));
+			SetError(*cString::sprintf("send failed (%s)", strerror(err)));
 			Disconnect(false);
 			return false;
 		}
@@ -698,6 +793,7 @@ bool cHyperionClient::Send(const std::vector<uint8_t> &msg)
 		struct pollfd pfd = { m_socket, POLLOUT, 0 };
 		if (left <= 0 || poll(&pfd, 1, left) <= 0) {
 			esyslog("hyperion: send to %s:%d timed out", m_activeConfig.host.c_str(), m_activeConfig.port);
+			SetError("send timed out");
 			Disconnect(false);
 			return false;
 		}
@@ -725,6 +821,7 @@ void cHyperionClient::ReceiveReplies(void)
 
 		if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
 			esyslog("hyperion: connection to %s:%d closed by the server", m_activeConfig.host.c_str(), m_activeConfig.port);
+			SetError("connection closed by the server");
 			Disconnect(false);
 			m_reconnectAtMs = NowMs() + m_reconnectDelayMs;
 			return;
@@ -739,6 +836,7 @@ void cHyperionClient::ReceiveReplies(void)
 
 		if (size > 64 * 1024) {
 			esyslog("hyperion: invalid reply from %s:%d", m_activeConfig.host.c_str(), m_activeConfig.port);
+			SetError("invalid reply from the server");
 			Disconnect(false);
 			return;
 		}
@@ -748,8 +846,10 @@ void cHyperionClient::ReceiveReplies(void)
 		std::string error;
 		int video, registered;
 		if (cHyperionProtocol::DecodeReply(p + 4, size, &error, &video, &registered) && !error.empty()) {
-			if (error != m_lastServerError)
+			if (error != m_lastServerError) {
 				esyslog("hyperion: server error: %s", error.c_str());
+				SetError(error);
+			}
 			m_lastServerError = error;
 		}
 
