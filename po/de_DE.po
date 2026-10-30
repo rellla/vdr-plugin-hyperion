@@ -147,3 +147,9 @@ msgstr "Fehler: -"
 
 msgid "Error: %s (%s)"
 msgstr "Fehler: %s (%s)"
+
+msgid " Dim on pause to (%)"
+msgstr " Bei Pause abdunkeln auf (%)"
+
+msgid "video paused"
+msgstr "Video pausiert"

@@ -43,6 +43,7 @@ struct sHyperionConfig {
 	int idleMode = IDLE_RELEASE;        ///< see eIdleMode
 	std::string idleEffect = "Rainbow swirl"; ///< effect for IDLE_EFFECT
 	bool hideMainMenuEntry = false;     ///< hide the main menu entry (the switch on/off)
+	int pauseBrightness = 100;          ///< brightness while paused (%, 100: not dimmed)
 
 	bool Parse(const char *name, const char *value);
 
@@ -50,7 +51,8 @@ struct sHyperionConfig {
 		return enable == o.enable && host == o.host && port == o.port &&
 		       priority == o.priority && fps == o.fps && width == o.width &&
 		       jsonPort == o.jsonPort && token == o.token && offAction == o.offAction &&
-		       ledsFollowAttach == o.ledsFollowAttach && idleMode == o.idleMode && idleEffect == o.idleEffect;
+		       ledsFollowAttach == o.ledsFollowAttach && idleMode == o.idleMode && idleEffect == o.idleEffect &&
+		       pauseBrightness == o.pauseBrightness;
 	}
 	bool operator!=(const sHyperionConfig &o) const { return !(*this == o); }
 };

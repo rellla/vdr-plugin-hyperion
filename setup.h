@@ -51,6 +51,7 @@ private:
 	int m_idleMode;
 	char m_idleEffect[64];
 	int m_hideMainMenuEntry;
+	int m_pauseBrightness;
 	const char *m_offActions[2];    ///< texts of the switch off actions
 	const char *m_idleModes[3];     ///< texts of the modes without video
 

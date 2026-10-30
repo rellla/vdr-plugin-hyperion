@@ -43,6 +43,9 @@ something changes):
   device and when VDR ends (e.g. the box is switched off), and on again with an attach or the next
   start.
 - Without video (radio), the leds can show an effect or stay dark (hyperion.IdleMode).
+- While the playback is paused, the leds can be dimmed (hyperion.PauseBrightness). They are dimmed
+  after half a second (not, if single frames are stepped) and fade within 1.5 seconds. With the
+  playback, the full brightness is restored at once.
 - Without hyperion.LedsFollowAttach, the plugin doesn't switch the led device on at the start: a led
   device, which was switched off elsewhere (e.g. in the web interface), stays off.
 - The setup page shows the state of the ambient light, the output plugin, the connection, the
@@ -111,6 +114,10 @@ Setup: /etc/vdr/setup.conf
 
 	hyperion.IdleEffect = Rainbow swirl
 		name of the Hyperion effect for hyperion.IdleMode = 1
+
+	hyperion.PauseBrightness = 100
+		0 - 100 = brightness of the ambient light while the playback is
+		paused (%). 100 = not dimmed.
 
 	hyperion.HideMainMenuEntry = 0
 		1 = hide the main menu entry, which switches the ambient light

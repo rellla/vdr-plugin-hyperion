@@ -186,6 +186,8 @@ void cHyperionClient::Action(void)
 		// switched off: only follow the attach state of the output device
 		if (!m_on) {
 			ReleaseLeds();
+			m_pausedSinceMs = 0;
+			m_brightness = 100;
 			AmbientImage_v1_0_t state = {};
 			state.structSize = sizeof(state);
 			state.width = config.width;
@@ -210,7 +212,8 @@ void cHyperionClient::Action(void)
 		AmbientImage_v1_0_t req = {};
 		req.structSize = sizeof(req);
 		req.width = config.width;
-		req.timeoutMs = SERVICE_WAIT_MS;
+		// wake up more often, while the brightness fades
+		req.timeoutMs = m_pausedSinceMs && m_brightness != config.pauseBrightness ? FADE_STEP_MS : SERVICE_WAIT_MS;
 		req.lastFrame = m_lastFrame;
 		req.rgb = m_rgb.data();
 		req.rgbSize = m_rgb.size();
@@ -228,11 +231,30 @@ void cHyperionClient::Action(void)
 			// no video can be displayed: give the leds back at once
 			m_attached = false;
 			ReleaseLeds();
+			m_pausedSinceMs = 0;
+			m_brightness = 100;
 			m_lastFrame = 0;
 			Wait(250);
 			continue;
 		}
 		m_attached = true;
+
+		// pause: dim the image after a moment (setup), restore it at once with the playback
+		bool paused = (req.flags & AMBIENT_PAUSED) && (req.flags & AMBIENT_VIDEO);
+		if (paused && !m_pausedSinceMs)
+			m_pausedSinceMs = now;
+		else if (!paused)
+			m_pausedSinceMs = 0;
+
+		int brightness = PauseBrightness(now);
+		if (brightness != m_brightness) {
+			bool fadeStep = brightness < m_brightness && brightness != config.pauseBrightness && now - m_lastSendMs < FADE_STEP_MS;
+			if (!fadeStep) {
+				m_brightness = brightness;
+				if (IsConnected() && m_imageSent && !m_image.empty() && !m_idleColorShown && SendImage())
+					m_lastSendMs = now;
+			}
+		}
 
 		if (req.flags & AMBIENT_NEW_IMAGE) {
 			m_idleSinceMs = 0;
@@ -596,6 +618,8 @@ void cHyperionClient::UpdateStats(uint64_t now)
 		state = m_imageSent ? sHyperionStats::STATE_KEPT : sHyperionStats::STATE_RELEASED;
 	else if (m_idleShown)
 		state = sHyperionStats::STATE_RELEASED;
+	else if (m_pausedSinceMs)
+		state = sHyperionStats::STATE_PAUSED;
 	else
 		state = sHyperionStats::STATE_VIDEO;    // also, if Hyperion isn't reachable (see connected)
 
@@ -640,11 +664,41 @@ void cHyperionClient::ReleaseLeds(void)
 }
 
 /**
- * Send the current image
+ * Get the brightness of the image (%)
+ *
+ * While paused, it fades to the brightness of the setup after a short delay,
+ * so stepping single frames doesn't dim the leds.
+ */
+int cHyperionClient::PauseBrightness(uint64_t now) const
+{
+	int target = m_activeConfig.pauseBrightness;
+	if (!m_pausedSinceMs || target >= 100)
+		return 100;
+
+	uint64_t paused = now - m_pausedSinceMs;
+	if (paused < PAUSE_DIM_DELAY_MS)
+		return 100;
+
+	uint64_t fade = paused - PAUSE_DIM_DELAY_MS;
+	if (fade >= PAUSE_DIM_FADE_MS)
+		return target;
+
+	return 100 - (int)((100 - target) * fade / PAUSE_DIM_FADE_MS);
+}
+
+/**
+ * Send the current image with the current brightness
  */
 bool cHyperionClient::SendImage(void)
 {
-	return Send(cHyperionProtocol::EncodeImage(m_image.data(), m_imageWidth, m_imageHeight));
+	if (m_brightness >= 100)
+		return Send(cHyperionProtocol::EncodeImage(m_image.data(), m_imageWidth, m_imageHeight));
+
+	m_dimmed.resize(m_image.size());
+	for (size_t i = 0; i < m_image.size(); i++)
+		m_dimmed[i] = (uint8_t)((m_image[i] * m_brightness + 50) / 100);
+
+	return Send(cHyperionProtocol::EncodeImage(m_dimmed.data(), m_imageWidth, m_imageHeight));
 }
 
 /**

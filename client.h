@@ -37,6 +37,7 @@ struct sHyperionStats {
 		STATE_DETACHED,                 ///< the output device is detached
 		STATE_OFF,                      ///< switched off by the user
 		STATE_VIDEO,                    ///< the video is sent
+		STATE_PAUSED,                   ///< the video is paused (and dimmed)
 		STATE_KEPT,                     ///< no video for a moment (e.g. channel switch), the last image is kept
 		STATE_RELEASED,                 ///< no video, the leds are given back to Hyperion
 		STATE_EFFECT,                   ///< no video, the idle effect is shown
@@ -100,6 +101,9 @@ private:
 	static constexpr int JSON_TIMEOUT_MS = 1500;       ///< max. time for a JSON request (connect, send, replies)
 	static constexpr int JSON_RETRY_MS = 5000;         ///< retry a failed JSON request after this time
 	static constexpr int STATS_INTERVAL_MS = 1000;     ///< interval of the images/s and sampling time statistics
+	static constexpr int PAUSE_DIM_DELAY_MS = 500;     ///< dim after this time (not, if single frames are stepped)
+	static constexpr int PAUSE_DIM_FADE_MS = 1500;     ///< duration of the fade to the paused brightness
+	static constexpr int FADE_STEP_MS = 50;            ///< interval of the images while fading
 	static constexpr const char *ORIGIN = "VDR";       ///< name of the input in Hyperion
 
 	// configuration (written by the setup, read by the thread)
@@ -138,6 +142,9 @@ private:
 	std::string m_lastJsonError;                       ///< last logged JSON error
 	int m_jsonTan = 0;                                 ///< last used tan of a JSON request
 	std::string m_lastReadError;                       ///< last logged error of the output plugin
+	uint64_t m_pausedSinceMs = 0;                      ///< the playback is paused since this time (0: not paused)
+	int m_brightness = 100;                            ///< brightness of the sent images (%)
+	std::vector<uint8_t> m_dimmed;                     ///< dimmed copy of the image
 
 	// statistics (written by the client thread, read by the setup)
 	std::mutex m_statsMutex;                           ///< protects m_stats
@@ -162,6 +169,7 @@ private:
 	bool IsConnected(void) const { return m_socket >= 0; }
 	bool Send(const std::vector<uint8_t> &);
 	bool SendImage(void);
+	int PauseBrightness(uint64_t) const;
 	void ReceiveReplies(void);
 	void SetError(const std::string &);
 	void UpdateStats(uint64_t);

@@ -27,6 +27,7 @@ static cString StateText(const sHyperionStats &stats)
 		case sHyperionStats::STATE_DETACHED:  return tr("output device detached");
 		case sHyperionStats::STATE_OFF:       return tr("switched off");
 		case sHyperionStats::STATE_VIDEO:     return cString::sprintf(tr("video, %d images/s"), stats.imagesPerSecond);
+		case sHyperionStats::STATE_PAUSED:    return tr("video paused");
 		case sHyperionStats::STATE_KEPT:      return tr("no video, the last image is kept");
 		case sHyperionStats::STATE_RELEASED:  return tr("no video, the leds are given back to Hyperion");
 		case sHyperionStats::STATE_EFFECT:    return tr("no video, effect");
@@ -55,6 +56,7 @@ cMenuSetupHyperion::cMenuSetupHyperion(sHyperionConfig *config, cHyperionClient 
 	m_idleMode = m_pConfig->idleMode;
 	strn0cpy(m_idleEffect, m_pConfig->idleEffect.c_str(), sizeof(m_idleEffect));
 	m_hideMainMenuEntry = m_pConfig->hideMainMenuEntry;
+	m_pauseBrightness = m_pConfig->pauseBrightness;
 
 	m_offActions[sHyperionConfig::OFF_LEDDEVICE] = tr("leds off");
 	m_offActions[sHyperionConfig::OFF_VIDEO] = tr("stop video");
@@ -88,6 +90,7 @@ void cMenuSetupHyperion::Create(void)
 		Add(new cMenuEditStraItem(tr(" Without video"), &m_idleMode, 3, m_idleModes));
 		if (m_idleMode == sHyperionConfig::IDLE_EFFECT)
 			Add(new cMenuEditStrItem(tr("  Effect"), m_idleEffect, sizeof(m_idleEffect)));
+		Add(new cMenuEditIntItem(tr(" Dim on pause to (%)"), &m_pauseBrightness, 0, 100, NULL, trVDR("no")));
 		Add(new cMenuEditBoolItem(tr(" Hide main menu entry"), &m_hideMainMenuEntry, trVDR("no"), trVDR("yes")));
 
 		// state
@@ -216,6 +219,7 @@ void cMenuSetupHyperion::Store(void)
 	SetupStore("IdleEffect", m_idleEffect);
 	m_pConfig->idleEffect = m_idleEffect;
 	SetupStore("HideMainMenuEntry", m_pConfig->hideMainMenuEntry = m_hideMainMenuEntry);
+	SetupStore("PauseBrightness", m_pConfig->pauseBrightness = m_pauseBrightness);
 
 	m_pClient->Configure(*m_pConfig);
 }

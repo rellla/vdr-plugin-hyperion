@@ -35,6 +35,7 @@ bool sHyperionConfig::Parse(const char *name, const char *value)
 	else if (!strcasecmp(name, "IdleMode")) idleMode = std::clamp(atoi(value), 0, 2);
 	else if (!strcasecmp(name, "IdleEffect")) idleEffect = *value ? value : "Rainbow swirl";
 	else if (!strcasecmp(name, "HideMainMenuEntry")) hideMainMenuEntry = atoi(value);
+	else if (!strcasecmp(name, "PauseBrightness")) pauseBrightness = std::clamp(atoi(value), 0, 100);
 	else
 		return false;
 
