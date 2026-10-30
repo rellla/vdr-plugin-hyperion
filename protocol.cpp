@@ -2,12 +2,15 @@
 
 /**
  * @file protocol.cpp
- * Hyperion Flatbuffers Protocol
+ * Hyperion Protocols
  *
  * Encodes the requests of the Hyperion flatbuffers server and decodes its
  * replies. The schemas are hyperion_request.fbs and hyperion_reply.fbs of
  * hyperion.ng (libsrc/flatbufserver). To avoid a dependency on the flatbuffers
  * library for a handful of tiny messages, the buffers are written by hand.
+ *
+ * The few requests of the JSON server, which are needed to control Hyperion,
+ * are written by hand, too.
  *
  * @copyright 2026 by Andreas Baierl. All Rights Reserved.
  *
@@ -15,6 +18,8 @@
  */
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "protocol.h"
@@ -345,3 +350,137 @@ bool cHyperionProtocol::DecodeReply(const uint8_t *data, size_t size, std::strin
 	return true;
 }
 
+/*****************************************************************************
+ * JSON-RPC
+ ****************************************************************************/
+
+/**
+ * Escape a string for a JSON string value
+ */
+std::string cHyperionJson::Escape(const std::string &str)
+{
+	std::string out;
+	out.reserve(str.size());
+
+	for (unsigned char c : str) {
+		switch (c) {
+			case '"':  out += "\\\""; break;
+			case '\\': out += "\\\\"; break;
+			case '\n': out += "\\n"; break;
+			case '\r': out += "\\r"; break;
+			case '\t': out += "\\t"; break;
+			default:
+				if (c < 0x20) {
+					char buf[8];
+					snprintf(buf, sizeof(buf), "\\u%04x", c);
+					out += buf;
+				} else {
+					out += (char)c;
+				}
+				break;
+		}
+	}
+
+	return out;
+}
+
+/**
+ * Login with a token (needed for connections from outside of the local network,
+ * or if the authorization is enabled for local connections)
+ */
+std::string cHyperionJson::Login(const std::string &token, int tan)
+{
+	return "{\"command\":\"authorize\",\"subcommand\":\"login\",\"token\":\"" + Escape(token) +
+	       "\",\"tan\":" + std::to_string(tan) + "}\n";
+}
+
+/**
+ * Switch a component (e.g. "LEDDEVICE") on or off
+ */
+std::string cHyperionJson::ComponentState(const char *component, bool state, int tan)
+{
+	return std::string("{\"command\":\"componentstate\",\"componentstate\":{\"component\":\"") + Escape(component) +
+	       "\",\"state\":" + (state ? "true" : "false") + "},\"tan\":" + std::to_string(tan) + "}\n";
+}
+
+/**
+ * Start an effect with the given priority (until it is cleared)
+ */
+std::string cHyperionJson::Effect(const std::string &name, int priority, const char *origin, int tan)
+{
+	return "{\"command\":\"effect\",\"effect\":{\"name\":\"" + Escape(name) + "\"},\"priority\":" + std::to_string(priority) +
+	       ",\"origin\":\"" + Escape(origin) + "\",\"tan\":" + std::to_string(tan) + "}\n";
+}
+
+/**
+ * Clear a priority
+ */
+std::string cHyperionJson::Clear(int priority, int tan)
+{
+	return "{\"command\":\"clear\",\"priority\":" + std::to_string(priority) + ",\"tan\":" + std::to_string(tan) + "}\n";
+}
+
+namespace {
+
+/** Position of the value of a key in a JSON object (std::string::npos, if not found) */
+size_t FindValue(const std::string &line, const char *key)
+{
+	std::string pattern = std::string("\"") + key + "\"";
+	size_t pos = 0;
+
+	while ((pos = line.find(pattern, pos)) != std::string::npos) {
+		size_t p = pos + pattern.size();
+		while (p < line.size() && (line[p] == ' ' || line[p] == '\t'))
+			p++;
+		if (p < line.size() && line[p] == ':') {
+			p++;
+			while (p < line.size() && (line[p] == ' ' || line[p] == '\t'))
+				p++;
+			return p;
+		}
+		pos = p;
+	}
+
+	return std::string::npos;
+}
+
+} // namespace
+
+/**
+ * Read the result of a reply
+ *
+ * Only the top level keys "tan", "success" and "error" are read. The replies
+ * of the used commands don't contain other objects with these keys.
+ *
+ * @param line          the reply (one line)
+ * @param[out] tan      tan of the reply (-1, if missing)
+ * @param[out] success  true, if the command succeeded
+ * @param[out] error    error message (empty, if none)
+ * @return              false, if the line is no reply
+ */
+bool cHyperionJson::ParseReply(const std::string &line, int *tan, bool *success, std::string *error)
+{
+	*tan = -1;
+	*success = false;
+	error->clear();
+
+	size_t p = FindValue(line, "success");
+	if (p == std::string::npos)
+		return false;
+	*success = line.compare(p, 4, "true") == 0;
+
+	p = FindValue(line, "tan");
+	if (p != std::string::npos)
+		*tan = atoi(line.c_str() + p);
+
+	p = FindValue(line, "error");
+	if (p != std::string::npos && p < line.size() && line[p] == '"') {
+		for (size_t i = p + 1; i < line.size() && line[i] != '"'; i++) {
+			if (line[i] == '\\' && i + 1 < line.size())
+				i++;
+			*error += line[i];
+		}
+	}
+
+	return true;
+}

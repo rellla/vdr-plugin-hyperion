@@ -32,6 +32,23 @@ No grabber is needed in Hyperion.
   to the lower priorities (e.g. an effect).
 - If Hyperion isn't reachable, the plugin retries in the background with an increasing delay.
 
+Hyperion is controlled with its JSON server (default port 19444, short connections only when
+something changes):
+
+- The ambient light can be switched off and on with the main menu entry, a key macro (e.g.
+  "Green @hyperion" in keymacros.conf) or with SVDRP (PLUG hyperion AMBI). Depending on
+  hyperion.OffAction, the led device of Hyperion is switched off or only the video isn't sent
+  anymore. The state isn't stored, after a restart of VDR the ambient light is on.
+- With hyperion.LedsFollowAttach = 1, the led device is switched off with a detach of the output
+  device and when VDR ends (e.g. the box is switched off), and on again with an attach or the next
+  start.
+- Without video (radio), the leds can show an effect or stay dark (hyperion.IdleMode).
+- Without hyperion.LedsFollowAttach, the plugin doesn't switch the led device on at the start: a led
+  device, which was switched off elsewhere (e.g. in the web interface), stays off.
+- Like the video, the JSON commands apply to all running instances of Hyperion. Without a token,
+  Hyperion only accepts them from the local network (and if "Local API authentication" is
+  disabled, the default).
+
 Requirements
 ------------
 - VDR 2.6.0 or newer
@@ -64,6 +81,46 @@ Setup: /etc/vdr/setup.conf
 	hyperion.Width = 80
 		16 - 320 = width of the image sent to Hyperion (the height
 		follows the aspect ratio of the screen)
+
+	hyperion.JsonPort = 19444
+		port of the Hyperion JSON server (used to control Hyperion)
+
+	hyperion.Token =
+		authorization token of the Hyperion JSON server (empty = none).
+		Only needed for a Hyperion outside of the local network or with
+		"Local API authentication" enabled in Hyperion.
+
+	hyperion.OffAction = 0
+		what switching the ambient light off (main menu, key macro,
+		SVDRP AMBI) does
+		0 = switch the led device of Hyperion off
+		1 = only stop sending the video (Hyperion shows the lower priorities)
+
+	hyperion.LedsFollowAttach = 0
+		0 = the led device isn't switched with the attach state
+		1 = switch the led device on with an attach (and at the start),
+		    off with a detach (and when VDR ends)
+
+	hyperion.IdleMode = 0
+		what is shown, if no video is displayed for two seconds (e.g. radio)
+		0 = give the leds back (Hyperion shows the lower priorities)
+		1 = the effect hyperion.IdleEffect
+		2 = dark leds
+
+	hyperion.IdleEffect = Rainbow swirl
+		name of the Hyperion effect for hyperion.IdleMode = 1
+
+	hyperion.HideMainMenuEntry = 0
+		1 = hide the main menu entry, which switches the ambient light
+		    on and off
+
+SVDRP commands
+--------------
+
+	AMBI [on | off | toggle]
+		Switch the ambient light on or off (not stored).
+		Without an argument the ambient light state is returned.
+		Reply code 550: Hyperion is disabled in the setup.
 
 Unit tests
 ----------

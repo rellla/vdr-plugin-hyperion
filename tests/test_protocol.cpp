@@ -135,3 +135,56 @@ TEST_CASE("HyperionProtocol: decoded replies", "[hyperion]")
 		SUCCEED();
 	}
 }
+
+TEST_CASE("HyperionJson: requests", "[hyperion]")
+{
+	CHECK(cHyperionJson::ComponentState("LEDDEVICE", false, 3) ==
+	      "{\"command\":\"componentstate\",\"componentstate\":{\"component\":\"LEDDEVICE\",\"state\":false},\"tan\":3}\n");
+	CHECK(cHyperionJson::ComponentState("LEDDEVICE", true, 4) ==
+	      "{\"command\":\"componentstate\",\"componentstate\":{\"component\":\"LEDDEVICE\",\"state\":true},\"tan\":4}\n");
+	CHECK(cHyperionJson::Effect("Rainbow swirl", 150, "VDR drmdevice", 5) ==
+	      "{\"command\":\"effect\",\"effect\":{\"name\":\"Rainbow swirl\"},\"priority\":150,\"origin\":\"VDR drmdevice\",\"tan\":5}\n");
+	CHECK(cHyperionJson::Clear(150, 6) == "{\"command\":\"clear\",\"priority\":150,\"tan\":6}\n");
+	CHECK(cHyperionJson::Login("0123-abcd", 1) ==
+	      "{\"command\":\"authorize\",\"subcommand\":\"login\",\"token\":\"0123-abcd\",\"tan\":1}\n");
+
+	SECTION("strings are escaped, a request stays one line") {
+		std::string r = cHyperionJson::Effect("a\"b\\c\nd\x01", 150, "o", 1);
+		CHECK(r.find("\"name\":\"a\\\"b\\\\c\\nd\\u0001\"") != std::string::npos);
+		CHECK(std::count(r.begin(), r.end(), '\n') == 1);
+		CHECK(r.back() == '\n');
+	}
+}
+
+TEST_CASE("HyperionJson: replies", "[hyperion]")
+{
+	int tan;
+	bool success;
+	std::string error;
+
+	SECTION("success, as Hyperion sends it (compact)") {
+		REQUIRE(cHyperionJson::ParseReply("{\"command\":\"componentstate\",\"success\":true,\"tan\":3}", &tan, &success, &error));
+		CHECK(success);
+		CHECK(tan == 3);
+		CHECK(error.empty());
+	}
+
+	SECTION("error with blanks and escaped quotes") {
+		REQUIRE(cHyperionJson::ParseReply("{ \"command\" : \"effect\", \"error\" : \"Effect \\\"x\\\" not found\", \"success\" : false, \"tan\" : 12 }", &tan, &success, &error));
+		CHECK_FALSE(success);
+		CHECK(tan == 12);
+		CHECK(error == "Effect \"x\" not found");
+	}
+
+	SECTION("no authorization") {
+		REQUIRE(cHyperionJson::ParseReply("{\"command\":\"clear\",\"error\":\"No Authorization\",\"success\":false,\"tan\":2}", &tan, &success, &error));
+		CHECK_FALSE(success);
+		CHECK(error == "No Authorization");
+	}
+
+	SECTION("no reply") {
+		CHECK_FALSE(cHyperionJson::ParseReply("{\"command\":\"instance-update\",\"data\":[]}", &tan, &success, &error));
+		CHECK_FALSE(cHyperionJson::ParseReply("", &tan, &success, &error));
+		CHECK(tan == -1);
+	}
+}

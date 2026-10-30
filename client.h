@@ -12,6 +12,7 @@
 #ifndef __HYPERION_CLIENT_H
 #define __HYPERION_CLIENT_H
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -32,6 +33,11 @@ class cPlugin;
  * Hyperion (ambient lighting). Everything runs in the own (low priority)
  * thread: the service call waits for the next frame of the video and reads
  * the image from it in this thread.
+ *
+ * Hyperion is controlled with its JSON server (short connections, only when
+ * something changes): the led device is switched on and off (switch off by
+ * the user, attach/detach of the output device) and an effect is started,
+ * while no video is shown.
  */
 class cHyperionClient : public cThread {
 public:
@@ -39,6 +45,8 @@ public:
 	virtual ~cHyperionClient(void);
 
 	void Configure(const sHyperionConfig &);
+	void SetOn(bool);
+	bool IsOn(void) const { return m_on; }      ///< false, if the user switched the ambient light off
 	void Stop(void);
 
 protected:
@@ -54,6 +62,8 @@ private:
 	static constexpr int SERVICE_WAIT_MS = 100;        ///< max. time to wait in the service for a new frame
 	static constexpr int INTERVAL_SLACK_MS = 5;        ///< the next frame is requested this time before the interval is over
 	static constexpr int PROVIDER_RETRY_MS = 5000;     ///< look for the output plugin again after this time
+	static constexpr int JSON_TIMEOUT_MS = 1500;       ///< max. time for a JSON request (connect, send, replies)
+	static constexpr int JSON_RETRY_MS = 5000;         ///< retry a failed JSON request after this time
 	static constexpr const char *ORIGIN = "VDR";       ///< name of the input in Hyperion
 
 	// configuration (written by the setup, read by the thread)
@@ -61,6 +71,7 @@ private:
 	std::condition_variable m_cond;                    ///< signals a change
 	sHyperionConfig m_config;                          ///< current configuration
 	bool m_changed = false;                            ///< the configuration or a state has changed
+	std::atomic<bool> m_on = true;                     ///< the user didn't switch the ambient light off
 
 	// client thread only
 	sHyperionConfig m_activeConfig;                    ///< configuration of the current connection
@@ -82,12 +93,25 @@ private:
 	uint64_t m_lastImageMs = 0;                        ///< time of the last new image
 	uint64_t m_lastSendMs = 0;                         ///< time of the last sent message
 	uint64_t m_idleSinceMs = 0;                        ///< no video is shown since this time (0: video is shown)
+	bool m_idleShown = false;                          ///< the state without video is shown (until the video returns)
+	bool m_attached = true;                            ///< the output device is attached (as the service reported)
+	bool m_idleColorShown = false;                     ///< the leds are dark (IDLE_BLACK), the color is repeated
+	bool m_effectActive = false;                       ///< the idle effect was started (has to be cleared)
+	int m_ledDeviceState = -1;                         ///< last state of the led device set by the client (-1: unknown)
+	uint64_t m_jsonRetryAtMs = 0;                      ///< earliest time of the next JSON request after an error
+	std::string m_lastJsonError;                       ///< last logged JSON error
+	int m_jsonTan = 0;                                 ///< last used tan of a JSON request
 
 	void Wait(int);
 	bool FindProvider(uint64_t);
 	bool Connect(void);
 	void Disconnect(bool);
 	void ReleaseLeds(void);
+	void ShowIdle(void);
+	bool StopEffect(bool);
+	void UpdateLedDevice(void);
+	bool ControlsLedDevice(const sHyperionConfig &) const;
+	bool JsonRequest(const std::vector<std::string> &, bool);
 	static int OpenSocket(const std::string &, int, int);
 	bool IsConnected(void) const { return m_socket >= 0; }
 	bool Send(const std::vector<uint8_t> &);

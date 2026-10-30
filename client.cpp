@@ -98,6 +98,23 @@ void cHyperionClient::Configure(const sHyperionConfig &config)
 		m_config.priority = std::clamp(m_config.priority, cHyperionProtocol::PRIORITY_MIN, cHyperionProtocol::PRIORITY_MAX);
 		m_config.fps = std::clamp(m_config.fps, 1, 60);
 		m_config.width = std::clamp(m_config.width, 8, 640);
+		m_config.jsonPort = std::clamp(m_config.jsonPort, 1, 65535);
+		m_changed = true;
+	}
+	m_cond.notify_one();
+}
+
+/**
+ * Switch the ambient light on or off (hotkey, menu, SVDRP)
+ *
+ * Depending on the setup, the led device of Hyperion is switched off
+ * or only the video isn't sent anymore. The state isn't stored.
+ */
+void cHyperionClient::SetOn(bool on)
+{
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_on = on;
 		m_changed = true;
 	}
 	m_cond.notify_one();
@@ -133,18 +150,47 @@ void cHyperionClient::Action(void)
 
 		// reconnect with the new settings
 		if (config != m_activeConfig) {
+			// clean up on the old server with the old settings
 			if (IsConnected())
 				Disconnect(true);
+			StopEffect(true);
+
+			// the led device of the old server isn't controlled anymore: switch it on again
+			bool sameServer = config.host == m_activeConfig.host && config.jsonPort == m_activeConfig.jsonPort && config.token == m_activeConfig.token;
+			if (!sameServer || !ControlsLedDevice(config)) {
+				if (m_ledDeviceState == 0)
+					JsonRequest({ cHyperionJson::ComponentState("LEDDEVICE", true, ++m_jsonTan) }, true);
+				m_ledDeviceState = -1;
+			}
+
 			m_activeConfig = config;
 			m_reconnectAtMs = 0;
 			m_reconnectDelayMs = RECONNECT_MIN_MS;
 			m_connectErrorLogged = false;
+			m_jsonRetryAtMs = 0;
+			m_lastJsonError.clear();
 		}
+
+		UpdateLedDevice();
 
 		uint64_t now = NowMs();
 
 		if (!config.enable || !FindProvider(now)) {
 			ReleaseLeds();
+			Wait(250);
+			continue;
+		}
+
+		// switched off: only follow the attach state of the output device
+		if (!m_on) {
+			ReleaseLeds();
+			AmbientImage_v1_0_t state = {};
+			state.structSize = sizeof(state);
+			state.width = config.width;
+			state.rgb = m_rgb.data();
+			state.rgbSize = m_rgb.size();
+			if (m_pProvider->Service(AMBIENTIMAGE_SERVICE, &state))
+				m_attached = !(state.flags & AMBIENT_DETACHED);
 			Wait(250);
 			continue;
 		}
@@ -177,14 +223,26 @@ void cHyperionClient::Action(void)
 
 		if (req.flags & AMBIENT_DETACHED) {
 			// no video can be displayed: give the leds back at once
+			m_attached = false;
 			ReleaseLeds();
 			m_lastFrame = 0;
 			Wait(250);
 			continue;
 		}
+		m_attached = true;
 
 		if (req.flags & AMBIENT_NEW_IMAGE) {
 			m_idleSinceMs = 0;
+			m_idleShown = false;
+
+			// leave the idle state
+			if (m_effectActive)
+				StopEffect(false);
+			if (m_idleColorShown) {
+				m_idleColorShown = false;
+				m_imageSent = false;
+			}
+
 			m_lastFrame = req.frame;
 			m_lastImageMs = now;
 			m_imageWidth = req.imageWidth;
@@ -197,27 +255,47 @@ void cHyperionClient::Action(void)
 				m_imageSent = true;
 				m_lastSendMs = now;
 			}
-		} else if (!(req.flags & AMBIENT_VIDEO) && !m_idleSinceMs) {
+		} else if (!(req.flags & AMBIENT_VIDEO) && !m_idleSinceMs && !m_idleShown) {
 			m_idleSinceMs = now;
 		}
 
-		// No video is displayed anymore (e.g. radio), give the leds back. A channel switch
-		// shows no video for a moment, too: meanwhile the last image is kept.
+		// No video is displayed anymore (e.g. radio). A channel switch shows no video for
+		// a moment, too: meanwhile the last image is kept.
 		if (m_idleSinceMs && now - m_idleSinceMs >= IDLE_RELEASE_MS)
-			ReleaseLeds();
+			ShowIdle();
 
 		if (IsConnected()) {
 			ReceiveReplies();
 
-			// keep the connection and the image alive (paused video)
-			if (IsConnected() && m_imageSent && !m_image.empty() && now - m_lastSendMs >= KEEPALIVE_MS) {
-				if (SendImage())
-					m_lastSendMs = now;
+			// keep the connection and the image or the dark leds alive (paused video, radio)
+			if (IsConnected() && now - m_lastSendMs >= KEEPALIVE_MS) {
+				if (m_idleColorShown) {
+					if (Send(cHyperionProtocol::EncodeColor(0x000000)))
+						m_lastSendMs = now;
+				} else if (m_imageSent && !m_image.empty()) {
+					if (SendImage())
+						m_lastSendMs = now;
+				}
 			}
 		}
 	}
 
-	Disconnect(true);
+	// VDR ends: give the leds back and switch the led device off, if it follows
+	// the attach state. Only one request: the time to stop the thread is limited.
+	if (IsConnected())
+		Disconnect(true);
+
+	std::vector<std::string> requests;
+	if (m_effectActive)
+		requests.push_back(cHyperionJson::Clear(m_activeConfig.priority, ++m_jsonTan));
+	if (ControlsLedDevice(m_activeConfig) && m_activeConfig.ledsFollowAttach && m_ledDeviceState != 0)
+		requests.push_back(cHyperionJson::ComponentState("LEDDEVICE", false, ++m_jsonTan));
+	if (!requests.empty() && JsonRequest(requests, true)) {
+		m_effectActive = false;
+		if (m_activeConfig.ledsFollowAttach)
+			m_ledDeviceState = 0;
+	}
+
 	dsyslog("hyperion: thread stopped");
 }
 
@@ -247,9 +325,215 @@ bool cHyperionClient::FindProvider(uint64_t now)
 }
 
 /**
+ * Show, that no video is displayed (setup: HyperionIdleMode)
+ *
+ * Called, when no video was displayed for IDLE_RELEASE_MS. If it fails (e.g.
+ * Hyperion isn't reachable), it is retried with the next loop.
+ */
+void cHyperionClient::ShowIdle(void)
+{
+	switch (m_activeConfig.idleMode) {
+		case sHyperionConfig::IDLE_EFFECT:
+			// the video of this priority is replaced by the effect
+			if (IsConnected())
+				Disconnect(true);
+			m_image.clear();
+
+			if (JsonRequest({ cHyperionJson::Effect(m_activeConfig.idleEffect, m_activeConfig.priority, ORIGIN, ++m_jsonTan) }, false)) {
+				dsyslog("hyperion: no video, started the effect \"%s\"", m_activeConfig.idleEffect.c_str());
+				m_effectActive = true;
+				m_idleSinceMs = 0;
+				m_idleShown = true;
+			}
+			break;
+		case sHyperionConfig::IDLE_BLACK:
+			if (!IsConnected() && NowMs() >= m_reconnectAtMs)
+				Connect();
+			if (IsConnected() && Send(cHyperionProtocol::EncodeColor(0x000000))) {
+				dsyslog("hyperion: no video, the leds are dark");
+				m_idleColorShown = true;
+				m_imageSent = true;     // the priority has to be cleared
+				m_lastSendMs = NowMs();
+				m_image.clear();
+				m_idleSinceMs = 0;
+				m_idleShown = true;
+			}
+			break;
+		default:
+			ReleaseLeds();
+			m_idleShown = true;
+			break;
+	}
+}
+
+/**
+ * Stop the idle effect
+ *
+ * @param force     send the request, even if the last request failed a moment ago
+ * @return          true, if no effect is active anymore
+ */
+bool cHyperionClient::StopEffect(bool force)
+{
+	if (!m_effectActive)
+		return true;
+
+	if (JsonRequest({ cHyperionJson::Clear(m_activeConfig.priority, ++m_jsonTan) }, force))
+		m_effectActive = false;
+
+	return !m_effectActive;
+}
+
+/**
+ * True, if the client switches the led device of Hyperion with the given settings
+ */
+bool cHyperionClient::ControlsLedDevice(const sHyperionConfig &config) const
+{
+	return config.enable && (config.ledsFollowAttach || config.offAction == sHyperionConfig::OFF_LEDDEVICE);
+}
+
+/**
+ * Switch the led device of Hyperion according to the state
+ *
+ * The led device is off, if the user switched the ambient light off (with
+ * OFF_LEDDEVICE) or if it follows the attach state and the device is detached.
+ * A request is only sent, if the state changes. Without ledsFollowAttach, the
+ * led device is assumed to be on at the start, so the client doesn't switch
+ * on a led device, which was switched off elsewhere.
+ */
+void cHyperionClient::UpdateLedDevice(void)
+{
+	if (!ControlsLedDevice(m_activeConfig))
+		return;
+
+	bool on = true;
+	if (m_activeConfig.ledsFollowAttach && !m_attached)
+		on = false;
+	if (m_activeConfig.offAction == sHyperionConfig::OFF_LEDDEVICE && !m_on)
+		on = false;
+
+	if (m_ledDeviceState == -1 && on && !m_activeConfig.ledsFollowAttach)
+		m_ledDeviceState = 1;
+	if (m_ledDeviceState == (on ? 1 : 0))
+		return;
+
+	if (JsonRequest({ cHyperionJson::ComponentState("LEDDEVICE", on, ++m_jsonTan) }, false)) {
+		isyslog("hyperion: switched the led device %s", on ? "on" : "off");
+		m_ledDeviceState = on ? 1 : 0;
+	}
+}
+
+/**
+ * Send requests to the JSON server and wait for the replies
+ *
+ * A short connection is used for every call: the requests are rare (a
+ * switch of the led device, the start of an effect). With a token, the
+ * client logs in first. The whole call takes at most JSON_TIMEOUT_MS.
+ * After a failure, further requests are skipped for JSON_RETRY_MS, so an
+ * unreachable server doesn't block the thread again and again.
+ *
+ * @param requests  the requests (lines)
+ * @param force     send, even if the last request failed a moment ago
+ * @return          true, if all requests succeeded
+ */
+bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool force)
+{
+	uint64_t start = NowMs();
+	if (!force && start < m_jsonRetryAtMs)
+		return false;
+
+	std::string error;
+	std::string data;
+	std::vector<int> tans;
+
+	if (!m_activeConfig.token.empty()) {
+		int tan = ++m_jsonTan;
+		data += cHyperionJson::Login(m_activeConfig.token, tan);
+		tans.push_back(tan);
+	}
+	for (const auto &r : requests) {
+		data += r;
+		size_t p = r.rfind("\"tan\":");
+		tans.push_back(p == std::string::npos ? -1 : atoi(r.c_str() + p + 6));
+	}
+
+	uint64_t deadline = start + JSON_TIMEOUT_MS;
+	int fd = OpenSocket(m_activeConfig.host, m_activeConfig.jsonPort, JSON_TIMEOUT_MS);
+	if (fd < 0) {
+		error = cString::sprintf("cannot connect (%s)", strerror(errno));
+	} else {
+		// send
+		size_t sent = 0;
+		while (sent < data.size() && error.empty()) {
+			ssize_t n = send(fd, data.data() + sent, data.size() - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+			if (n > 0) {
+				sent += n;
+				continue;
+			}
+			if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+				error = cString::sprintf("send failed (%s)", strerror(errno));
+				break;
+			}
+			int64_t left = (int64_t)(deadline - NowMs());
+			struct pollfd pfd = { fd, POLLOUT, 0 };
+			if (left <= 0 || poll(&pfd, 1, left) <= 0)
+				error = "send timed out";
+		}
+
+		// Read the replies, one line each. Hyperion sends one reply per instance,
+		// so a tan may be answered several times.
+		std::string rx;
+		while (error.empty() && !tans.empty()) {
+			size_t eol;
+			while (error.empty() && (eol = rx.find('\n')) != std::string::npos) {
+				std::string line = rx.substr(0, eol);
+				rx.erase(0, eol + 1);
+
+				int tan;
+				bool success;
+				std::string replyError;
+				if (!cHyperionJson::ParseReply(line, &tan, &success, &replyError))
+					continue;   // no reply (e.g. a notification)
+				if (!success)
+					error = replyError.empty() ? std::string("request failed") : replyError;
+				tans.erase(std::remove(tans.begin(), tans.end(), tan), tans.end());
+			}
+			if (!error.empty() || tans.empty())
+				break;
+
+			int64_t left = (int64_t)(deadline - NowMs());
+			struct pollfd pfd = { fd, POLLIN, 0 };
+			if (left <= 0 || poll(&pfd, 1, left) <= 0) {
+				error = "no reply";
+				break;
+			}
+
+			char buf[4096];
+			ssize_t n = recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
+			if (n > 0)
+				rx.append(buf, n);
+			else if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
+				error = "connection closed by the server";
+		}
+		close(fd);
+	}
+
+	if (!error.empty()) {
+		if (error != m_lastJsonError)
+			esyslog("hyperion: request to the JSON server %s:%d failed: %s", m_activeConfig.host.c_str(), m_activeConfig.jsonPort, error.c_str());
+		m_lastJsonError = error;
+		m_jsonRetryAtMs = NowMs() + JSON_RETRY_MS;
+		return false;
+	}
+
+	m_lastJsonError.clear();
+	m_jsonRetryAtMs = 0;
+	return true;
+}
+
+/**
  * Give the leds back to the lower priorities in Hyperion
  *
- * Clears the priority and closes the connection.
+ * Clears the priority (video, dark leds or effect) and closes the connection.
  */
 void cHyperionClient::ReleaseLeds(void)
 {
@@ -257,6 +541,9 @@ void cHyperionClient::ReleaseLeds(void)
 		Disconnect(true);
 	m_image.clear();
 	m_idleSinceMs = 0;
+	m_idleShown = false;
+	m_idleColorShown = false;
+	StopEffect(false);
 }
 
 /**

@@ -36,3 +36,54 @@ msgstr " Bilder pro Sekunde"
 
 msgid " Image width (pixels)"
 msgstr " Bildbreite (Pixel)"
+
+msgid "Switch ambient light off"
+msgstr "Ambilight ausschalten"
+
+msgid "Switch ambient light on"
+msgstr "Ambilight einschalten"
+
+msgid "Ambient light: disabled in the setup"
+msgstr "Ambilight: im Setup deaktiviert"
+
+msgid "Ambient light: on"
+msgstr "Ambilight: an"
+
+msgid "Ambient light: off"
+msgstr "Ambilight: aus"
+
+msgid "leds off"
+msgstr "LEDs aus"
+
+msgid "stop video"
+msgstr "Video stoppen"
+
+msgid "Hyperion"
+msgstr "Hyperion"
+
+msgid "effect"
+msgstr "Effekt"
+
+msgid "dark"
+msgstr "dunkel"
+
+msgid " Port (JSON server)"
+msgstr " Port (JSON-Server)"
+
+msgid " Token (JSON server)"
+msgstr " Token (JSON-Server)"
+
+msgid " Switch off"
+msgstr " Ausschalten"
+
+msgid " Leds off when detached"
+msgstr " LEDs aus bei Detach"
+
+msgid " Without video"
+msgstr " Ohne Video"
+
+msgid "  Effect"
+msgstr "  Effekt"
+
+msgid " Hide main menu entry"
+msgstr " Hauptmenüeintrag verstecken"

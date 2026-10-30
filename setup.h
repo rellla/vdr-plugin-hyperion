@@ -40,6 +40,15 @@ private:
 	int m_priority;
 	int m_fps;
 	int m_width;
+	int m_jsonPort;
+	char m_token[64];
+	int m_offAction;
+	int m_ledsFollowAttach;
+	int m_idleMode;
+	char m_idleEffect[64];
+	int m_hideMainMenuEntry;
+	const char *m_offActions[2];    ///< texts of the switch off actions
+	const char *m_idleModes[3];     ///< texts of the modes without video
 
 	void Create(void);
 };
