@@ -1,0 +1,141 @@
+name: Build and test
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'HISTORY'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'HISTORY'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# cancel outdated runs of the same branch/pull request
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    # an empty container runs the job directly on the runner
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: GCC
+            cxx: g++
+            check-i18n: true
+            artifact: vdr-hyperion
+            tests: true
+            sanitize: true
+          - name: Clang
+            cxx: clang++
+            packages: clang
+          # the latest releases of the older VDR versions
+          - name: GCC, VDR 2.6
+            cxx: g++
+            vdr-ref: '2.6'
+          - name: GCC, VDR 2.4
+            cxx: g++
+            vdr-ref: '2.4'
+          # old compiler and libraries (GCC 9), its Catch2 is too old for the tests
+          - name: Ubuntu 20.04, GCC
+            container: ubuntu:20.04
+            cxx: g++
+          # catches changes of upcoming compiler versions early
+          - name: Debian testing, GCC
+            container: debian:testing
+            cxx: g++
+            tests: true
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          SUDO=""
+          if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
+          $SUDO apt-get update -qq
+          $SUDO apt-get install -y -qq --no-install-recommends \
+            build-essential ca-certificates git gettext pkg-config \
+            ${{ matrix.tests && 'catch2' || '' }} ${{ matrix.packages }}
+
+      - name: Checkout plugin repository
+        uses: actions/checkout@v7
+        with:
+          path: hyperion
+
+      - name: Prepare VDR source tree
+        env:
+          VDR_REF: ${{ matrix.vdr-ref }}
+        run: |
+          VDR_URL=https://github.com/vdr-projects/vdr.git
+          # a release series (e.g. "2.6") selects its latest release tag
+          if [[ "$VDR_REF" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            SERIES="$VDR_REF"
+            VDR_REF=$(git ls-remote --tags --refs "$VDR_URL" "refs/tags/$SERIES.*" \
+              | sed 's|.*refs/tags/||' | grep -E "^${SERIES//./\\.}\.[0-9]+$" | sort -V | tail -n1)
+            if [ -z "$VDR_REF" ]; then
+              echo "::error::No release of VDR $SERIES found"
+              exit 1
+            fi
+          fi
+          git clone --quiet --depth 1 ${VDR_REF:+--branch "$VDR_REF"} "$VDR_URL" vdr
+          git -C vdr log -1 --format='Building against VDR %h (%cs): %s'
+          make -C vdr include-dir vdr.pc
+          mkdir -p vdr/PLUGINS/src
+          mv hyperion vdr/PLUGINS/src/hyperion
+
+      - name: Build plugin
+        run: |
+          make -C vdr/PLUGINS/src/hyperion -j"$(nproc)" \
+            CXX=${{ matrix.cxx }} \
+            INCLUDES="-isystem $PWD/vdr/include -Werror"
+
+      - name: Check translation files
+        if: matrix.check-i18n
+        working-directory: vdr/PLUGINS/src/hyperion
+        run: |
+          if ! git diff --quiet -- po/*.po; then
+            echo "::error::The translation files need to be updated:"
+            git --no-pager diff -- po/*.po
+            exit 1
+          fi
+
+      - name: Run unit tests
+        if: matrix.tests
+        working-directory: vdr/PLUGINS/src/hyperion/tests
+        run: make -j"$(nproc)" test
+
+      # LeakSanitizer doesn't work in containers without ptrace
+      - name: Run unit tests with address and undefined behavior sanitizer
+        if: matrix.sanitize
+        working-directory: vdr/PLUGINS/src/hyperion/tests
+        run: |
+          make clean
+          make -j"$(nproc)" test \
+            CXXFLAGS="-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+            LDFLAGS="-fsanitize=address,undefined"
+
+      - name: Upload build artifact
+        if: matrix.artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: vdr/PLUGINS/src/hyperion/libvdr-hyperion.so
+          if-no-files-found: error
