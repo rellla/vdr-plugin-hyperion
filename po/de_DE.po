@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: vdr-hyperion 0.1.0\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2026-10-30 12:00+0100\n"
+"POT-Creation-Date: 2026-10-31 23:03+0000\n"
 "PO-Revision-Date: 2026-10-30 12:00+0100\n"
 "Last-Translator: Andreas Baierl <ichgeh@imkreisrum.de>\n"
 "Language-Team: German <vdr@linuxtv.org>\n"
@@ -18,6 +18,67 @@ msgstr ""
 
 msgid "Ambient light with Hyperion"
 msgstr "Ambilight mit Hyperion"
+
+msgid "Switch ambient light off"
+msgstr "Ambilight ausschalten"
+
+msgid "Switch ambient light on"
+msgstr "Ambilight einschalten"
+
+msgid "Ambient light: disabled in the setup"
+msgstr "Ambilight: im Setup deaktiviert"
+
+msgid "Ambient light: on"
+msgstr "Ambilight: an"
+
+msgid "Ambient light: off"
+msgstr "Ambilight: aus"
+
+msgid "no output plugin provides the video"
+msgstr "kein Ausgabeplugin liefert das Video"
+
+msgid "output device detached"
+msgstr "Ausgabegerät getrennt"
+
+msgid "switched off"
+msgstr "ausgeschaltet"
+
+#, c-format
+msgid "video, %d images/s"
+msgstr "Video, %d Bilder/s"
+
+msgid "video paused"
+msgstr "Video pausiert"
+
+msgid "no video, the last image is kept"
+msgstr "kein Video, letztes Bild wird gehalten"
+
+msgid "no video, the leds are given back to Hyperion"
+msgstr "kein Video, LEDs an Hyperion zurückgegeben"
+
+msgid "no video, effect"
+msgstr "kein Video, Effekt"
+
+msgid "no video, dark"
+msgstr "kein Video, dunkel"
+
+msgid "disabled"
+msgstr "deaktiviert"
+
+msgid "leds off"
+msgstr "LEDs aus"
+
+msgid "stop video"
+msgstr "Video stoppen"
+
+msgid "Hyperion"
+msgstr "Hyperion"
+
+msgid "effect"
+msgstr "Effekt"
+
+msgid "dark"
+msgstr "dunkel"
 
 msgid "Send video to Hyperion"
 msgstr "Video an Hyperion senden"
@@ -37,36 +98,6 @@ msgstr " Bilder pro Sekunde"
 msgid " Image width (pixels)"
 msgstr " Bildbreite (Pixel)"
 
-msgid "Switch ambient light off"
-msgstr "Ambilight ausschalten"
-
-msgid "Switch ambient light on"
-msgstr "Ambilight einschalten"
-
-msgid "Ambient light: disabled in the setup"
-msgstr "Ambilight: im Setup deaktiviert"
-
-msgid "Ambient light: on"
-msgstr "Ambilight: an"
-
-msgid "Ambient light: off"
-msgstr "Ambilight: aus"
-
-msgid "leds off"
-msgstr "LEDs aus"
-
-msgid "stop video"
-msgstr "Video stoppen"
-
-msgid "Hyperion"
-msgstr "Hyperion"
-
-msgid "effect"
-msgstr "Effekt"
-
-msgid "dark"
-msgstr "dunkel"
-
 msgid " Port (JSON server)"
 msgstr " Port (JSON-Server)"
 
@@ -85,47 +116,29 @@ msgstr " Ohne Video"
 msgid "  Effect"
 msgstr "  Effekt"
 
+msgid " Dim on pause to (%)"
+msgstr " Bei Pause abdunkeln auf (%)"
+
 msgid " Hide main menu entry"
 msgstr " Hauptmenüeintrag verstecken"
-
-msgid "no output plugin provides the video"
-msgstr "kein Ausgabeplugin liefert das Video"
-
-msgid "output device detached"
-msgstr "Ausgabegerät getrennt"
-
-msgid "switched off"
-msgstr "ausgeschaltet"
-
-msgid "video, %d images/s"
-msgstr "Video, %d Bilder/s"
-
-msgid "no video, the last image is kept"
-msgstr "kein Video, letztes Bild wird gehalten"
-
-msgid "no video, the leds are given back to Hyperion"
-msgstr "kein Video, LEDs an Hyperion zurückgegeben"
-
-msgid "no video, effect"
-msgstr "kein Video, Effekt"
-
-msgid "no video, dark"
-msgstr "kein Video, dunkel"
-
-msgid "disabled"
-msgstr "deaktiviert"
 
 msgid "State"
 msgstr "Status"
 
+#, c-format
 msgid "Ambient light: %s"
 msgstr "Ambilight: %s"
 
+#, c-format
 msgid "Output plugin: %s"
 msgstr "Ausgabeplugin: %s"
 
 msgid "leds on"
 msgstr "LEDs an"
+
+#, c-format
+msgid "Hyperion server: %s, %s, priority %d%s"
+msgstr "Hyperion-Server: %s, %s, Priorität %d%s"
 
 msgid "connected"
 msgstr "verbunden"
@@ -133,23 +146,16 @@ msgstr "verbunden"
 msgid "not connected"
 msgstr "nicht verbunden"
 
-msgid "Hyperion server: %s, %s, priority %d%s"
-msgstr "Hyperion-Server: %s, %s, Priorität %d%s"
-
 msgid "Image: -"
 msgstr "Bild: -"
 
+#, c-format
 msgid "Image: %s -> %dx%d, %d.%02d ms (max. %d.%02d ms)"
 msgstr "Bild: %s -> %dx%d, %d,%02d ms (max. %d,%02d ms)"
 
 msgid "Error: -"
 msgstr "Fehler: -"
 
+#, c-format
 msgid "Error: %s (%s)"
 msgstr "Fehler: %s (%s)"
-
-msgid " Dim on pause to (%)"
-msgstr " Bei Pause abdunkeln auf (%)"
-
-msgid "video paused"
-msgstr "Video pausiert"
