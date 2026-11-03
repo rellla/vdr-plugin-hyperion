@@ -129,6 +129,11 @@ const char **cPluginHyperion::SVDRPHelpPages(void)
 		"AMBI [on | off | toggle]\n"
 		"    Switch the ambient light on or off (not stored).\n"
 		"    Without an argument the ambient light state is returned.",
+		"STAT\n"
+		"    Show the state of the ambient light as \"key: value\" lines\n"
+		"    (state, on, output, server, connected, priority, leds,\n"
+		"    images_per_second, format, image, sample_us, sample_us_max,\n"
+		"    error, error_time).",
 		nullptr
 	};
 
@@ -140,6 +145,14 @@ const char **cPluginHyperion::SVDRPHelpPages(void)
  */
 cString cPluginHyperion::SVDRPCommand(const char *command, const char *option, int &replyCode)
 {
+	if (!strcasecmp(command, "STAT")) {
+		if (!m_pClient)
+			return "state: disabled";
+		sHyperionStats stats;
+		m_pClient->GetStats(&stats);
+		return stats.Format(m_pClient->IsOn()).c_str();
+	}
+
 	if (strcasecmp(command, "AMBI"))
 		return nullptr;
 
