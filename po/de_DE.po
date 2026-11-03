@@ -62,6 +62,9 @@ msgstr "kein Video, Effekt"
 msgid "no video, dark"
 msgstr "kein Video, dunkel"
 
+msgid "test pattern"
+msgstr "Testbild"
+
 msgid "disabled"
 msgstr "deaktiviert"
 
@@ -127,6 +130,9 @@ msgstr " Hauptmenüeintrag verstecken"
 
 msgid " Settings in Hyperion..."
 msgstr " Einstellungen in Hyperion..."
+
+msgid " Test pattern..."
+msgstr " Testbild..."
 
 msgid "State"
 msgstr "Status"
@@ -250,3 +256,32 @@ msgstr "OK sucht erneut."
 
 msgid "flatbuffers server disabled"
 msgstr "Flatbuffers-Server ausgeschaltet"
+
+msgid "Test pattern"
+msgstr "Testbild"
+
+msgid "Colors (red, green, blue, white)"
+msgstr "Farben (rot, grün, blau, weiß)"
+
+msgid "Edges (top red, right green, bottom blue, left yellow)"
+msgstr "Ränder (oben rot, rechts grün, unten blau, links gelb)"
+
+msgid "Delay (black and white)"
+msgstr "Verzögerung (schwarz und weiß)"
+
+msgid "OK shows the pattern on the screen and the leds."
+msgstr "OK zeigt das Testbild am Bildschirm und auf den LEDs."
+
+msgid "Up/Down: next pattern, Back: end"
+msgstr "Auf/Ab: nächstes Testbild, Zurück: Ende"
+
+msgid "The delay needs the smoothing (Settings in Hyperion)"
+msgstr "Die Verzögerung braucht die Glättung (Einstellungen in Hyperion)"
+
+#, c-format
+msgid "Delay: %d frames (%d ms), Left/Right: change"
+msgstr "Verzögerung: %d Bilder (%d ms), Links/Rechts: ändern"
+
+#, c-format
+msgid "Delay: %d frames, writing..."
+msgstr "Verzögerung: %d Bilder, schreibe..."

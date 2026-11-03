@@ -62,6 +62,23 @@ which still has to be stored with OK. If the host changes, the token is cleared:
 belongs to the Hyperion, which created it. If the flatbuffers server of a Hyperion is disabled,
 it has to be enabled in its web interface (Network services).
 
+Test pattern
+------------
+"Test pattern..." on the setup page shows a pattern on the whole screen (OSD) and sends the same
+pattern to Hyperion at the same moment (instead of the video):
+
+- Colors: red, green, blue and white, every 2 seconds. Shows, if the color order of the leds is
+  right.
+- Edges: top red, right green, bottom blue, left yellow. Shows, if the layout of the leds (start,
+  direction, corners) is right.
+- Delay: black and white, every second. The leds should change together with the screen. If they
+  are ahead (a TV with a slow picture processing), Left/Right changes the delay of the leds, it is
+  written into Hyperion at once. The delay needs the smoothing of Hyperion. With the smoothing,
+  the leds fade within the smoothing time: compare the start of the change.
+
+Up/Down switches the pattern, Back or OK returns to the menu and the video. The pattern is shown,
+even if the ambient light is switched off.
+
 Settings in Hyperion
 --------------------
 The setup page opens "Settings in Hyperion...", where some settings of Hyperion itself can be
@@ -69,7 +86,7 @@ changed:
 
 - smoothing: on/off, the time to reach a new color and a delay of the leds (in frames of the
   smoothing, e.g. 40 ms at 25 Hz; it helps, if the leds are ahead of a TV with a slow picture
-  processing)
+  processing, see the test pattern "Delay"; Hyperion delays the leds only with the smoothing)
 - black border detection: on/off, the threshold (max. brightness of a black border) and the mode
 - brightness of the leds
 

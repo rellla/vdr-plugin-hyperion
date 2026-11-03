@@ -74,6 +74,9 @@ public:
 		TOKEN_RECEIVED,                 ///< the token was received
 		TOKEN_ERROR,                    ///< the request failed or was denied
 	};
+	void SetTestImage(const std::vector<uint8_t> &rgb, int width, int height);
+	void StopTest(void);
+
 	void RequestToken(const sHyperionConfig &);
 	void CancelTokenRequest(void);
 	int GetTokenRequest(std::string *token, std::string *code, int *secondsLeft, std::string *error);
@@ -113,6 +116,13 @@ private:
 	sHyperionSettings m_newSettings;                   ///< the settings to write
 	std::string m_settingsError;                       ///< error of the last request
 	unsigned int m_settingsRequest = 0;                ///< number of the last request (a newer request replaces an older one)
+
+	// test pattern (written by the setup, protected by m_mutex)
+	std::vector<uint8_t> m_testImage;                  ///< image of the test pattern (empty: no test)
+	int m_testWidth = 0;                               ///< width of the test image
+	int m_testHeight = 0;                              ///< height of the test image
+	bool m_testChanged = false;                        ///< the test image has to be sent
+	std::atomic<bool> m_testActive = false;            ///< a test pattern is shown (client thread)
 
 	// token request (own thread, it waits up to some minutes for the answer)
 	static constexpr int TOKEN_TIMEOUT_MS = 185000;    ///< Hyperion answers after 3 minutes at the latest
@@ -179,6 +189,7 @@ private:
 	bool ControlsLedDevice(const sHyperionConfig &) const;
 	bool JsonRequest(const std::vector<std::string> &, bool, std::string *reply = nullptr, const sHyperionConfig *server = nullptr, const std::string *password = nullptr);
 	void HandleSettings(void);
+	bool HandleTest(void);
 	bool AdminLogin(const sHyperionConfig &, std::string *, std::string *);
 	bool ReadSettings(const sHyperionConfig &, const std::string &, std::string *, sHyperionSettings *, std::string *);
 	std::string AuthError(const sHyperionConfig &) const;
