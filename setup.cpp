@@ -91,9 +91,12 @@ void cMenuSetupHyperion::Create(void)
 	m_liveItems.clear();
 	m_settingsItem = nullptr;
 	m_tokenItem = nullptr;
+	m_searchItem = nullptr;
 
 	Add(new cMenuEditBoolItem(tr("Send video to Hyperion"), &m_enable, trVDR("no"), trVDR("yes")));
 	if (m_enable) {
+		m_searchItem = new cOsdItem(tr(" Search Hyperion..."));
+		Add(m_searchItem);
 		Add(new cMenuEditStrItem(tr(" Host"), m_host, sizeof(m_host), "abcdefghijklmnopqrstuvwxyz0123456789.-:"));
 		Add(new cMenuEditIntItem(tr(" Port (flatbuffers server)"), &m_port, 1, 65535));
 		Add(new cMenuEditIntItem(tr(" Priority"), &m_priority, 100, 199));
@@ -195,6 +198,9 @@ eOSState cMenuSetupHyperion::ProcessKey(eKeys key)
 	// open the settings of Hyperion with the server, as it is shown
 	if (key == kOk && !HasSubMenu() && m_settingsItem && Get(Current()) == m_settingsItem)
 		return AddSubMenu(new cMenuHyperionSettings(m_pClient, ShownServer()));
+	if (key == kOk && !HasSubMenu() && m_searchItem && Get(Current()) == m_searchItem)
+		return AddSubMenu(new cMenuHyperionDiscovery(m_host, sizeof(m_host), &m_port, &m_jsonPort, m_token));
+	bool hadSubMenu = HasSubMenu();
 
 	// request a token or cancel the request
 	if (key == kOk && !HasSubMenu() && m_tokenItem && Get(Current()) == m_tokenItem) {
@@ -213,7 +219,8 @@ eOSState cMenuSetupHyperion::ProcessKey(eKeys key)
 
 	eOSState state = cMenuSetupPage::ProcessKey(key);
 
-	if (key != kNone && (oldEnable != m_enable || oldIdleMode != m_idleMode))
+	// a sub menu may have changed the fields (search)
+	if ((hadSubMenu && !HasSubMenu()) || (key != kNone && (oldEnable != m_enable || oldIdleMode != m_idleMode)))
 		Create();
 
 	// update the state, while the menu is shown
@@ -451,4 +458,130 @@ eOSState cMenuHyperionSettings::ProcessKey(eKeys key)
 		default:
 			return osContinue;
 	}
+}
+
+/*****************************************************************************
+ * Search Hyperion
+ ****************************************************************************/
+
+/**
+ * Create the menu and start the search
+ *
+ * The pointers are the fields of the setup page, which get the selected server.
+ */
+cMenuHyperionDiscovery::cMenuHyperionDiscovery(char *host, size_t hostSize, int *port, int *jsonPort, char *token)
+	: cOsdMenu(tr("Search Hyperion"), 20),
+	  m_host(host),
+	  m_hostSize(hostSize),
+	  m_port(port),
+	  m_jsonPort(jsonPort),
+	  m_token(token)
+{
+	SetMenuCategory(mcPluginSetup);
+	StartSearch();
+	Create();
+}
+
+cMenuHyperionDiscovery::~cMenuHyperionDiscovery()
+{
+	m_cancel = true;
+	if (m_thread.joinable())
+		m_thread.join();
+}
+
+/**
+ * Start a search in the own thread
+ */
+void cMenuHyperionDiscovery::StartSearch(void)
+{
+	if (m_thread.joinable())
+		m_thread.join();
+
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_searching = true;
+		m_servers.clear();
+		m_shown = false;
+	}
+	m_cancel = false;
+	m_thread = std::thread([this]() {
+		std::vector<sHyperionServer> servers = cHyperionDiscovery::Search(SEARCH_MS, &m_cancel);
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_servers = servers;
+		m_searching = false;
+	});
+}
+
+/**
+ * Create the items (the found servers)
+ */
+void cMenuHyperionDiscovery::Create(void)
+{
+	Clear();
+
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (m_searching) {
+		Add(new cOsdItem(tr("Searching Hyperion..."), osUnknown, false));
+	} else if (m_servers.empty()) {
+		Add(new cOsdItem(tr("No Hyperion found."), osUnknown, false));
+		Add(new cOsdItem(" ", osUnknown, false));
+		Add(new cOsdItem(tr("OK searches again."), osUnknown, false));
+	} else {
+		for (const auto &s : m_servers) {
+			cString ports = s.flatbufPort ? cString::sprintf("%s:%d, JSON %d", s.host.c_str(), s.flatbufPort, s.jsonPort)
+			                              : cString::sprintf("%s, %s", s.host.c_str(), tr("flatbuffers server disabled"));
+			Add(new cOsdItem(cString::sprintf("%s\t%s", s.name.c_str(), *ports)));
+		}
+	}
+	m_shown = !m_searching;
+
+	Display();
+}
+
+/**
+ * Handle a key
+ */
+eOSState cMenuHyperionDiscovery::ProcessKey(eKeys key)
+{
+	{
+		std::unique_lock<std::mutex> lock(m_mutex);
+		bool done = !m_searching && !m_shown;
+		lock.unlock();
+		if (done)
+			Create();
+	}
+
+	eOSState state = cOsdMenu::ProcessKey(key);
+	if (state != osUnknown || key != kOk)
+		return state;
+
+	std::unique_lock<std::mutex> lock(m_mutex);
+	if (m_searching)
+		return osContinue;
+
+	if (m_servers.empty()) {
+		lock.unlock();
+		StartSearch();
+		Create();
+		return osContinue;
+	}
+
+	int current = Current();
+	if (current < 0 || current >= (int)m_servers.size())
+		return osContinue;
+
+	// a token belongs to its server
+	const sHyperionServer &s = m_servers[current];
+	char host[256];
+	strn0cpy(host, m_host, sizeof(host));
+	stripspace(host);
+	if (s.host != host)
+		*m_token = 0;
+
+	strn0cpy(m_host, s.host.c_str(), m_hostSize);
+	if (s.flatbufPort)
+		*m_port = s.flatbufPort;
+	*m_jsonPort = s.jsonPort;
+
+	return osBack;
 }

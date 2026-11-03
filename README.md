@@ -54,6 +54,14 @@ something changes):
   Hyperion only accepts them from the local network (and if "Local API authentication" is
   disabled, the default).
 
+Search Hyperion
+---------------
+"Search Hyperion..." on the setup page lists the Hyperion servers in the local network (SSDP,
+Hyperion always answers it). The selected server is put into host and ports of the setup page,
+which still has to be stored with OK. If the host changes, the token is cleared: a token only
+belongs to the Hyperion, which created it. If the flatbuffers server of a Hyperion is disabled,
+it has to be enabled in its web interface (Network services).
+
 Settings in Hyperion
 --------------------
 The setup page opens "Settings in Hyperion...", where some settings of Hyperion itself can be

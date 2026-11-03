@@ -57,7 +57,7 @@ DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
 
 ### The object files (add further files here):
 
-OBJS = $(PLUGIN).o client.o config.o hyperionsettings.o protocol.o setup.o stats.o
+OBJS = $(PLUGIN).o client.o config.o discovery.o hyperionsettings.o protocol.o setup.o stats.o
 
 ### The main target:
 
