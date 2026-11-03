@@ -12,14 +12,18 @@
 #ifndef __HYPERION_SETUP_H
 #define __HYPERION_SETUP_H
 
+#include <atomic>
 #include <functional>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <vdr/menuitems.h>
 #include <vdr/tools.h>
 
 #include "config.h"
+#include "discovery.h"
 #include "hyperionsettings.h"
 
 class cHyperionClient;
@@ -59,6 +63,38 @@ private:
 };
 
 /**
+ * Menu of the Hyperion servers found in the network
+ *
+ * The search (SSDP) runs in an own thread. The selected server is written
+ * into the fields of the setup page.
+ */
+class cMenuHyperionDiscovery : public cOsdMenu {
+public:
+	cMenuHyperionDiscovery(char *host, size_t hostSize, int *port, int *jsonPort, char *token);
+	virtual ~cMenuHyperionDiscovery();
+	virtual eOSState ProcessKey(eKeys);
+
+private:
+	static constexpr int SEARCH_MS = 2000;  ///< time to wait for the answers
+
+	char *m_host;                   ///< host field of the setup page
+	size_t m_hostSize;              ///< size of the host field
+	int *m_port;                    ///< flatbuffers port field of the setup page
+	int *m_jsonPort;                ///< JSON port field of the setup page
+	char *m_token;                  ///< token field of the setup page (cleared for another server)
+
+	std::thread m_thread;           ///< runs the search
+	std::atomic<bool> m_cancel = false; ///< stops the search
+	std::mutex m_mutex;             ///< protects the members below
+	bool m_searching = false;       ///< the search is running
+	std::vector<sHyperionServer> m_servers; ///< the found servers (after the search)
+	bool m_shown = false;           ///< the result is shown
+
+	void StartSearch(void);
+	void Create(void);
+};
+
+/**
  * Setup page of the plugin
  */
 class cMenuSetupHyperion : public cMenuSetupPage {
@@ -91,6 +127,7 @@ private:
 	int m_pauseBrightness;
 	cOsdItem *m_settingsItem = nullptr; ///< opens the menu of the settings of Hyperion
 	cOsdItem *m_tokenItem = nullptr;    ///< requests a token
+	cOsdItem *m_searchItem = nullptr;   ///< searches Hyperion servers
 	const char *m_offActions[2];    ///< texts of the switch off actions
 	const char *m_idleModes[3];     ///< texts of the modes without video
 

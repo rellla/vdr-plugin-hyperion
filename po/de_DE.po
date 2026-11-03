@@ -83,6 +83,9 @@ msgstr "dunkel"
 msgid "Send video to Hyperion"
 msgstr "Video an Hyperion senden"
 
+msgid " Search Hyperion..."
+msgstr " Hyperion suchen..."
+
 msgid " Host"
 msgstr " Host"
 
@@ -232,3 +235,18 @@ msgstr "Lese die Einstellungen..."
 
 msgid "Settings written into Hyperion"
 msgstr "Einstellungen in Hyperion gespeichert"
+
+msgid "Search Hyperion"
+msgstr "Hyperion suchen"
+
+msgid "Searching Hyperion..."
+msgstr "Suche Hyperion..."
+
+msgid "No Hyperion found."
+msgstr "Kein Hyperion gefunden."
+
+msgid "OK searches again."
+msgstr "OK sucht erneut."
+
+msgid "flatbuffers server disabled"
+msgstr "Flatbuffers-Server ausgeschaltet"
