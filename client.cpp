@@ -177,6 +177,8 @@ void cHyperionClient::Action(void)
 
 		UpdateLedDevice();
 		HandleSettings();
+		if (HandleTest())
+			continue;
 
 		uint64_t now = NowMs();
 
@@ -454,10 +456,11 @@ void cHyperionClient::UpdateLedDevice(void)
 	if (!ControlsLedDevice(m_activeConfig))
 		return;
 
+	// a test pattern is always shown
 	bool on = true;
-	if (m_activeConfig.ledsFollowAttach && !m_attached)
+	if (m_activeConfig.ledsFollowAttach && !m_attached && !m_testActive)
 		on = false;
-	if (m_activeConfig.offAction == sHyperionConfig::OFF_LEDDEVICE && !m_on)
+	if (m_activeConfig.offAction == sHyperionConfig::OFF_LEDDEVICE && !m_on && !m_testActive)
 		on = false;
 
 	if (m_ledDeviceState == -1 && on && !m_activeConfig.ledsFollowAttach)
@@ -767,6 +770,104 @@ void cHyperionClient::HandleSettings(void)
 }
 
 /**
+ * Show a test pattern instead of the video (setup)
+ *
+ * The image is sent at once (the client thread wakes up), so it can be
+ * compared with the picture of the TV, e.g. to find the delay of the leds.
+ * It is shown, even if the ambient light is switched off or the output
+ * device is detached. StopTest() returns to the video.
+ */
+void cHyperionClient::SetTestImage(const std::vector<uint8_t> &rgb, int width, int height)
+{
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_testImage = rgb;
+		m_testWidth = width;
+		m_testHeight = height;
+		m_testChanged = true;
+		m_changed = true;
+	}
+	m_cond.notify_one();
+}
+
+/**
+ * Stop the test pattern
+ */
+void cHyperionClient::StopTest(void)
+{
+	SetTestImage({}, 0, 0);
+}
+
+/**
+ * Send the test pattern (client thread)
+ *
+ * @return  true, if a test pattern is shown (the video is skipped)
+ */
+bool cHyperionClient::HandleTest(void)
+{
+	std::vector<uint8_t> image;
+	int width = 0, height = 0;
+	bool changed;
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		changed = m_testChanged;
+		m_testChanged = false;
+		if (changed || m_testActive) {
+			image = m_testImage;
+			width = m_testWidth;
+			height = m_testHeight;
+		}
+	}
+
+	if (!changed && !m_testActive)
+		return false;
+
+	if (image.empty() || width <= 0 || height <= 0 || image.size() < (size_t)width * height * 3) {
+		// end of the test: back to the video
+		if (m_testActive) {
+			m_testActive = false;
+			ReleaseLeds();
+			m_lastFrame = 0;
+			dsyslog("hyperion: test pattern stopped");
+		}
+		return false;
+	}
+
+	if (!m_testActive) {
+		dsyslog("hyperion: test pattern started");
+		m_testActive = true;
+		// the video, the effect or the dark leds are replaced
+		StopEffect(true);
+		m_idleSinceMs = 0;
+		m_idleShown = false;
+		m_idleColorShown = false;
+		m_pausedSinceMs = 0;
+		m_brightness = 100;
+		UpdateLedDevice();
+	}
+
+	uint64_t now = NowMs();
+	if (!IsConnected() && now >= m_reconnectAtMs)
+		Connect();
+
+	if (IsConnected()) {
+		if (changed || image != m_image || now - m_lastSendMs >= KEEPALIVE_MS) {
+			m_image = image;
+			m_imageWidth = width;
+			m_imageHeight = height;
+			if (SendImage()) {
+				m_imageSent = true;
+				m_lastSendMs = now;
+			}
+		}
+		ReceiveReplies();
+	}
+
+	Wait(100);
+	return true;
+}
+
+/**
  * Request a token from Hyperion (setup)
  *
  * The request runs in an own thread: Hyperion answers, when the user has
@@ -958,12 +1059,14 @@ void cHyperionClient::SetError(const std::string &error)
 void cHyperionClient::UpdateStats(uint64_t now)
 {
 	int state;
-	if (!m_activeConfig.enable)
+	if (!m_activeConfig.enable && !m_testActive)
 		state = sHyperionStats::STATE_DISABLED;
 	else if (!m_pProvider)
 		state = sHyperionStats::STATE_NO_OUTPUT;
 	else if (!m_attached)
 		state = sHyperionStats::STATE_DETACHED;
+	else if (m_testActive)
+		state = sHyperionStats::STATE_TEST;
 	else if (!m_on)
 		state = sHyperionStats::STATE_OFF;
 	else if (m_effectActive)

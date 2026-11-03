@@ -31,6 +31,7 @@ struct sHyperionStats {
 		STATE_RELEASED,                 ///< no video, the leds are given back to Hyperion
 		STATE_EFFECT,                   ///< no video, the idle effect is shown
 		STATE_DARK,                     ///< no video, the leds are dark
+		STATE_TEST,                     ///< a test pattern is shown (setup)
 	};
 
 	int state = STATE_DISABLED;         ///< see eState

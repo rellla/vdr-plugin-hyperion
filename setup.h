@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <vdr/menuitems.h>
+#include <vdr/osd.h>
 #include <vdr/tools.h>
 
 #include "config.h"
@@ -60,6 +61,40 @@ private:
 
 	void Create(void);
 	sHyperionSettings Edited(void) const;
+};
+
+/**
+ * Menu of the test patterns
+ *
+ * A pattern is shown on the whole screen (an own OSD above the menu) and sent
+ * to Hyperion at the same moment, so the leds can be compared with the TV.
+ * With the black and white pattern, the delay of the leds can be changed
+ * (smoothing of Hyperion), until the leds change together with the screen.
+ */
+class cMenuHyperionTest : public cOsdMenu {
+public:
+	cMenuHyperionTest(cHyperionClient *, const sHyperionConfig &);
+	virtual ~cMenuHyperionTest();
+	virtual eOSState ProcessKey(eKeys);
+
+private:
+	cHyperionClient *m_pClient;     ///< sends the pattern and changes the delay
+	sHyperionConfig m_server;       ///< host, JSON port and token of the server
+	cOsd *m_pOsd = nullptr;         ///< shows the pattern (nullptr: no pattern)
+	int m_mode = 0;                 ///< the shown pattern (cTestPattern::eMode)
+	int m_step = 0;                 ///< step of the pattern
+	cTimeMs m_stepTimer;            ///< time of the next step
+
+	// delay of the leds (MODE_DELAY)
+	int m_settingsState = -1;       ///< state of the settings (cHyperionClient::eSettingsState, -1: not requested)
+	sHyperionSettings m_settings;   ///< the read settings (with the changed delay)
+	std::string m_error;            ///< error of the settings
+
+	void Start(int);
+	void Stop(void);
+	void ShowPattern(bool);
+	void ChangeDelay(int);
+	cString DelayText(void) const;
 };
 
 /**
@@ -128,6 +163,7 @@ private:
 	cOsdItem *m_settingsItem = nullptr; ///< opens the menu of the settings of Hyperion
 	cOsdItem *m_tokenItem = nullptr;    ///< requests a token
 	cOsdItem *m_searchItem = nullptr;   ///< searches Hyperion servers
+	cOsdItem *m_testItem = nullptr;     ///< shows test patterns
 	const char *m_offActions[2];    ///< texts of the switch off actions
 	const char *m_idleModes[3];     ///< texts of the modes without video
 

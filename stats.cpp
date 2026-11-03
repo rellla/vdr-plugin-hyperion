@@ -26,6 +26,7 @@ const char *sHyperionStats::StateName(int state)
 		case STATE_RELEASED:  return "released";
 		case STATE_EFFECT:    return "effect";
 		case STATE_DARK:      return "dark";
+		case STATE_TEST:      return "test";
 		default:              return "disabled";
 	}
 }

@@ -19,6 +19,7 @@
 
 #include "client.h"
 #include "setup.h"
+#include "testpattern.h"
 
 /**
  * Describe the state of the ambient light
@@ -35,6 +36,7 @@ static cString StateText(const sHyperionStats &stats)
 		case sHyperionStats::STATE_RELEASED:  return tr("no video, the leds are given back to Hyperion");
 		case sHyperionStats::STATE_EFFECT:    return tr("no video, effect");
 		case sHyperionStats::STATE_DARK:      return tr("no video, dark");
+		case sHyperionStats::STATE_TEST:      return tr("test pattern");
 		default:                              return tr("disabled");
 	}
 }
@@ -92,6 +94,7 @@ void cMenuSetupHyperion::Create(void)
 	m_settingsItem = nullptr;
 	m_tokenItem = nullptr;
 	m_searchItem = nullptr;
+	m_testItem = nullptr;
 
 	Add(new cMenuEditBoolItem(tr("Send video to Hyperion"), &m_enable, trVDR("no"), trVDR("yes")));
 	if (m_enable) {
@@ -115,6 +118,8 @@ void cMenuSetupHyperion::Create(void)
 		Add(new cMenuEditBoolItem(tr(" Hide main menu entry"), &m_hideMainMenuEntry, trVDR("no"), trVDR("yes")));
 		m_settingsItem = new cOsdItem(tr(" Settings in Hyperion..."));
 		Add(m_settingsItem);
+		m_testItem = new cOsdItem(tr(" Test pattern..."));
+		Add(m_testItem);
 
 		// state
 		Add(new cOsdItem(" ", osUnknown, false));
@@ -198,6 +203,8 @@ eOSState cMenuSetupHyperion::ProcessKey(eKeys key)
 	// open the settings of Hyperion with the server, as it is shown
 	if (key == kOk && !HasSubMenu() && m_settingsItem && Get(Current()) == m_settingsItem)
 		return AddSubMenu(new cMenuHyperionSettings(m_pClient, ShownServer()));
+	if (key == kOk && !HasSubMenu() && m_testItem && Get(Current()) == m_testItem)
+		return AddSubMenu(new cMenuHyperionTest(m_pClient, ShownServer()));
 	if (key == kOk && !HasSubMenu() && m_searchItem && Get(Current()) == m_searchItem)
 		return AddSubMenu(new cMenuHyperionDiscovery(m_host, sizeof(m_host), &m_port, &m_jsonPort, m_token));
 	bool hadSubMenu = HasSubMenu();
@@ -584,4 +591,229 @@ eOSState cMenuHyperionDiscovery::ProcessKey(eKeys key)
 	*m_jsonPort = s.jsonPort;
 
 	return osBack;
+}
+
+/*****************************************************************************
+ * Test pattern
+ ****************************************************************************/
+
+namespace {
+
+tColor OsdColor(uint32_t rgb)
+{
+	return 0xff000000 | rgb;
+}
+
+} // namespace
+
+/**
+ * Create the menu of the test patterns
+ */
+cMenuHyperionTest::cMenuHyperionTest(cHyperionClient *client, const sHyperionConfig &server)
+	: cOsdMenu(tr("Test pattern")),
+	  m_pClient(client),
+	  m_server(server)
+{
+	SetMenuCategory(mcPluginSetup);
+	Add(new cOsdItem(tr("Colors (red, green, blue, white)")));
+	Add(new cOsdItem(tr("Edges (top red, right green, bottom blue, left yellow)")));
+	Add(new cOsdItem(tr("Delay (black and white)")));
+	Add(new cOsdItem(" ", osUnknown, false));
+	Add(new cOsdItem(tr("OK shows the pattern on the screen and the leds."), osUnknown, false));
+	Display();
+}
+
+cMenuHyperionTest::~cMenuHyperionTest()
+{
+	Stop();
+}
+
+/**
+ * Show a pattern
+ */
+void cMenuHyperionTest::Start(int mode)
+{
+	if (!m_pOsd) {
+		// above the menu, the menu is hidden meanwhile
+		m_pOsd = cOsdProvider::NewOsd(cOsd::OsdLeft(), cOsd::OsdTop(), OSD_LEVEL_SUBTITLES + 1);
+		tArea area = { 0, 0, cOsd::OsdWidth() - 1, cOsd::OsdHeight() - 1, 32 };
+		if (m_pOsd->CanHandleAreas(&area, 1) != oeOk)
+			area.bpp = 8;
+		m_pOsd->SetAreas(&area, 1);
+	}
+
+	m_mode = mode;
+	m_step = 0;
+	if (m_mode == cTestPattern::MODE_DELAY && m_settingsState < 0) {
+		m_pClient->LoadSettings(m_server);
+		m_settingsState = cHyperionClient::SETTINGS_LOADING;
+	}
+
+	SetNeedsFastResponse(true);     // the next step is shown in time
+	ShowPattern(true);
+}
+
+/**
+ * Stop the pattern (back to the menu and the video)
+ */
+void cMenuHyperionTest::Stop(void)
+{
+	if (!m_pOsd)
+		return;
+
+	delete m_pOsd;
+	m_pOsd = nullptr;
+	m_pClient->StopTest();
+	SetNeedsFastResponse(false);
+}
+
+/**
+ * Show the current step of the pattern on the screen and the leds
+ *
+ * The leds get the image right after the OSD is flushed, so both change
+ * at the same time (apart from the delays to compare).
+ *
+ * @param step      a new step is shown (the time of the next step is set)
+ */
+void cMenuHyperionTest::ShowPattern(bool step)
+{
+	cTestPattern::sColors c = cTestPattern::Colors(m_mode, m_step);
+	int w = cOsd::OsdWidth();
+	int h = cOsd::OsdHeight();
+	int bx = w / cTestPattern::BORDER;
+	int by = h / cTestPattern::BORDER;
+
+	m_pOsd->DrawRectangle(0, 0, w - 1, h - 1, OsdColor(c.center));
+	m_pOsd->DrawRectangle(0, 0, bx - 1, h - 1, OsdColor(c.left));
+	m_pOsd->DrawRectangle(w - bx, 0, w - 1, h - 1, OsdColor(c.right));
+	m_pOsd->DrawRectangle(0, 0, w - 1, by - 1, OsdColor(c.top));
+	m_pOsd->DrawRectangle(0, h - by, w - 1, h - 1, OsdColor(c.bottom));
+
+	// help in the middle
+	const cFont *font = cFont::GetFont(fontOsd);
+	int lh = font->Height();
+	cString help = tr("Up/Down: next pattern, Back: end");
+	cString line2 = m_mode == cTestPattern::MODE_DELAY ? DelayText() : cString("");
+	int tw = std::max(font->Width(help), font->Width(line2)) + 2 * lh;
+	int th = (*line2 && **line2 ? 2 : 1) * lh + lh;
+	int x = (w - tw) / 2;
+	int y = (h - th) / 2;
+	m_pOsd->DrawRectangle(x, y, x + tw - 1, y + th - 1, clrBlack);
+	m_pOsd->DrawText(x, y + lh / 2, help, clrWhite, clrBlack, font, tw, lh, taCenter);
+	if (**line2)
+		m_pOsd->DrawText(x, y + lh / 2 + lh, line2, clrWhite, clrBlack, font, tw, lh, taCenter);
+
+	m_pOsd->Flush();
+	m_pClient->SetTestImage(cTestPattern::Image(c), cTestPattern::WIDTH, cTestPattern::HEIGHT);
+
+	if (step)
+		m_stepTimer.Set(cTestPattern::StepMs(m_mode));
+}
+
+/**
+ * Text of the delay
+ */
+cString cMenuHyperionTest::DelayText(void) const
+{
+	switch (m_settingsState) {
+		case cHyperionClient::SETTINGS_LOADED:
+		case cHyperionClient::SETTINGS_SAVED:
+			if (!m_settings.smoothing)
+				return tr("The delay needs the smoothing (Settings in Hyperion)");
+			return cString::sprintf(tr("Delay: %d frames (%d ms), Left/Right: change"), m_settings.smoothingDelay,
+				m_settings.smoothingDelay * 1000 / std::max(1, m_settings.smoothingFrequency));
+		case cHyperionClient::SETTINGS_SAVING:
+			return cString::sprintf(tr("Delay: %d frames, writing..."), m_settings.smoothingDelay);
+		case cHyperionClient::SETTINGS_ERROR:
+			return cString::sprintf(tr("Error: %s"), m_error.c_str());
+		default:
+			return tr("Reading the settings...");
+	}
+}
+
+/**
+ * Change the delay of the leds (written into Hyperion at once)
+ */
+void cMenuHyperionTest::ChangeDelay(int diff)
+{
+	if (m_settingsState != cHyperionClient::SETTINGS_LOADED && m_settingsState != cHyperionClient::SETTINGS_SAVED &&
+	    m_settingsState != cHyperionClient::SETTINGS_SAVING)
+		return;
+	if (!m_settings.smoothing)
+		return;     // Hyperion delays the leds only with the smoothing
+
+	int delay = std::clamp(m_settings.smoothingDelay + diff, 0, 2048);
+	if (delay == m_settings.smoothingDelay)
+		return;
+
+	m_settings.smoothingDelay = delay;
+	m_pClient->SaveSettings(m_server, m_settings);
+	m_settingsState = cHyperionClient::SETTINGS_SAVING;
+}
+
+/**
+ * Handle a key
+ */
+eOSState cMenuHyperionTest::ProcessKey(eKeys key)
+{
+	if (!m_pOsd) {
+		eOSState state = cOsdMenu::ProcessKey(key);
+		if (state == osUnknown && key == kOk && Current() >= 0 && Current() < cTestPattern::MODES) {
+			Start(Current());
+			return osContinue;
+		}
+		return state;
+	}
+
+	// a pattern is shown: the menu doesn't get the keys
+	bool show = false;
+
+	if (m_settingsState == cHyperionClient::SETTINGS_LOADING || m_settingsState == cHyperionClient::SETTINGS_SAVING) {
+		sHyperionSettings settings;
+		std::string error;
+		int state = m_pClient->GetSettings(&settings, &error);
+		// the client reports a result only for the last request (the last changed delay)
+		if (state == cHyperionClient::SETTINGS_LOADED || state == cHyperionClient::SETTINGS_SAVED ||
+		    state == cHyperionClient::SETTINGS_ERROR) {
+			if (state != cHyperionClient::SETTINGS_ERROR)
+				m_settings = settings;
+			m_settingsState = state;
+			m_error = error;
+			show = m_mode == cTestPattern::MODE_DELAY;
+		}
+	}
+
+	switch (key & ~k_Repeat) {
+		case kBack:
+		case kOk:
+			Stop();
+			Display();
+			return osContinue;
+		case kUp:
+			m_mode = (m_mode + cTestPattern::MODES - 1) % cTestPattern::MODES;
+			Start(m_mode);
+			return osContinue;
+		case kDown:
+			m_mode = (m_mode + 1) % cTestPattern::MODES;
+			Start(m_mode);
+			return osContinue;
+		case kLeft:
+		case kRight:
+			if (m_mode == cTestPattern::MODE_DELAY) {
+				ChangeDelay(NORMALKEY(key) == kLeft ? -1 : 1);
+				show = true;
+			}
+			break;
+		default:
+			break;
+	}
+
+	if (m_stepTimer.TimedOut()) {
+		m_step = (m_step + 1) % cTestPattern::Steps(m_mode);
+		ShowPattern(true);
+	} else if (show) {
+		ShowPattern(false);    // only the text has changed, the timing of the steps stays
+	}
+
+	return osContinue;
 }
