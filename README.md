@@ -198,6 +198,25 @@ SVDRP commands
 		Without an argument the ambient light state is returned.
 		Reply code 550: Hyperion is disabled in the setup.
 
+	STAT
+		Show the state of the ambient light as "key: value" lines, e.g.
+		for home automation:
+		  state: video          disabled, no_output, detached, off, video,
+		                        paused, kept, released, effect or dark
+		  on: 1                 0 = switched off by the user (AMBI off)
+		  output: drmdevice     output plugin, which provides the video
+		  server: 127.0.0.1:19400
+		  connected: 1          connected to the flatbuffers server
+		  priority: 150
+		  leds: on              led device set by the plugin (on, off, -)
+		  images_per_second: 25
+		  format: NV12/SAND128 1920x1080
+		  image: 80x45          size of the sent image
+		  sample_us: 210        average/max. time to read an image from
+		  sample_us_max: 480    a frame (microseconds)
+		  error:                last error (empty: none)
+		  error_time:           time of the last error (seconds since 1970)
+
 Unit tests
 ----------
 The tests use Catch2 v3: make test
