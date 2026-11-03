@@ -86,6 +86,39 @@ a login with admin rights:
 
 The password is never guessed: Hyperion blocks the login for 10 minutes after 10 failed attempts.
 
+Follow the TV (CEC)
+-------------------
+The ambient light can follow the TV with the plugin
+[cecremote](https://www.uli-eckhardt.de/vdr/cec.de.shtml): it runs SVDRP AMBI, when the TV
+sends a CEC command. Add to cecremote.xml (in `<config>`):
+
+	<!-- TV (logical address 0) goes to standby: ambient light off -->
+	<onceccommand command="STANDBY" initiator="0">
+		<commandlist>
+			<exec>svdrpsend PLUG hyperion AMBI off</exec>
+		</commandlist>
+	</onceccommand>
+	<!-- TV is switched on: ambient light on -->
+	<onceccommand command="REQUEST_ACTIVE_SOURCE" initiator="0">
+		<commandlist>
+			<exec>svdrpsend PLUG hyperion AMBI on</exec>
+		</commandlist>
+	</onceccommand>
+	<onceccommand command="SET_STREAM_PATH" initiator="0">
+		<commandlist>
+			<exec>svdrpsend PLUG hyperion AMBI on</exec>
+		</commandlist>
+	</onceccommand>
+
+- Every TV sends standby, but the commands after switching on differ: most TVs send
+  REQUEST_ACTIVE_SOURCE or SET_STREAM_PATH, some ROUTING_CHANGE. The commands of the TV are logged
+  with `<cecdebug>` in cecremote.xml.
+- With hyperion.OffAction = 0, the led device of Hyperion is switched off and on, so the leds are
+  dark also without video. With 1, only the video isn't sent anymore.
+- The plugin itself doesn't use CEC, so it doesn't compete with cecremote (or Kodi) for the CEC
+  adapter. If Hyperion runs on its own device, which is connected to the TV with HDMI, Hyperion can
+  also handle the CEC commands itself (CEC events in its web interface).
+
 Requirements
 ------------
 - VDR 2.6.0 or newer
