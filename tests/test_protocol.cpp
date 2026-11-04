@@ -153,6 +153,11 @@ TEST_CASE("HyperionJson: requests", "[hyperion]")
 	CHECK(cHyperionJson::NewPasswordRequired(3) ==
 	      "{\"command\":\"authorize\",\"subcommand\":\"newPasswordRequired\",\"tan\":3}\n");
 
+	CHECK(cHyperionJson::RequestToken("VDR hyperion plugin", "AB3CD", true, 1) ==
+	      "{\"command\":\"authorize\",\"comment\":\"VDR hyperion plugin\",\"id\":\"AB3CD\",\"subcommand\":\"requestToken\",\"tan\":1}\n");
+	CHECK(cHyperionJson::RequestToken("VDR hyperion plugin", "AB3CD", false, 2) ==
+	      "{\"accept\":false,\"command\":\"authorize\",\"comment\":\"VDR hyperion plugin\",\"id\":\"AB3CD\",\"subcommand\":\"requestToken\",\"tan\":2}\n");
+
 	SECTION("strings are escaped, a request stays one line") {
 		std::string r = cHyperionJson::Effect("a\"b\\c\nd\x01", 150, "o", 1);
 		CHECK(r.find("\"name\":\"a\\\"b\\\\c\\nd\\u0001\"") != std::string::npos);
@@ -220,4 +225,16 @@ TEST_CASE("HyperionJson: default password", "[hyperion]")
 	CHECK_FALSE(required);
 	CHECK_FALSE(cHyperionJson::ParseNewPasswordRequired("{\"command\":\"authorize-newPasswordRequired\",\"success\":true,\"tan\":3}", &required));
 	CHECK_FALSE(cHyperionJson::ParseNewPasswordRequired("{\"info\":{\"newPasswordRequired\":1}}", &required));
+}
+
+TEST_CASE("HyperionJson: token request", "[hyperion]")
+{
+	std::string token;
+
+	// as JsonAPI::handleTokenResponse sends it
+	CHECK(cHyperionJson::ParseToken("{\"command\":\"authorize-requestToken\",\"info\":{\"comment\":\"VDR hyperion plugin\",\"id\":\"AB3CD\","
+	                                "\"token\":\"3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f\"},\"success\":true,\"tan\":1}", &token));
+	CHECK(token == "3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f");
+	CHECK_FALSE(cHyperionJson::ParseToken("{\"command\":\"authorize-requestToken\",\"error\":\"Token request timeout or denied\",\"success\":false,\"tan\":1}", &token));
+	CHECK(token.empty());
 }

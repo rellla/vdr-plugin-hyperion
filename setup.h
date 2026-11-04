@@ -64,6 +64,7 @@ private:
 class cMenuSetupHyperion : public cMenuSetupPage {
 public:
 	cMenuSetupHyperion(sHyperionConfig *, cHyperionClient *);
+	virtual ~cMenuSetupHyperion();
 	virtual eOSState ProcessKey(eKeys);
 
 protected:
@@ -89,6 +90,7 @@ private:
 	int m_hideMainMenuEntry;
 	int m_pauseBrightness;
 	cOsdItem *m_settingsItem = nullptr; ///< opens the menu of the settings of Hyperion
+	cOsdItem *m_tokenItem = nullptr;    ///< requests a token
 	const char *m_offActions[2];    ///< texts of the switch off actions
 	const char *m_idleModes[3];     ///< texts of the modes without video
 
@@ -102,8 +104,11 @@ private:
 	cTimeMs m_liveUpdateTimer;                           ///< timer for the next update of the state
 
 	void Create(void);
-	void AddLiveItem(std::function<cString(void)>);
+	void AddLiveItem(std::function<cString(void)>, bool selectable = false);
 	void UpdateLiveItems(void);
+	sHyperionConfig ShownServer(void) const;
+	cString TokenText(void);
+	void CheckToken(void);
 };
 
 #endif

@@ -76,8 +76,13 @@ a login with admin rights:
 
 - As long as Hyperion has its default password, the plugin logs in with it, as the web interface
   does (which doesn't ask for a password then). Nothing has to be set up.
-- If a password was set in Hyperion, a token is needed (hyperion.Token). It can be created in the
-  web interface of Hyperion under Network services, Token management.
+- If a password was set in Hyperion, a token is needed (hyperion.Token). The easiest way to get
+  one is "Request token..." on the setup page: the plugin sends a token request with a code of 5
+  characters, which is shown in the setup. Hyperion shows the request with the same code in its
+  web interface (the next time it is opened, if it isn't open). When it is accepted there (within
+  3 minutes), the plugin receives the token and stores it at once. OK on the item cancels the
+  request, leaving the setup page as well. A token can also be created in the web interface under
+  Network services, Token management and entered on the setup page.
 
 The password is never guessed: Hyperion blocks the login for 10 minutes after 10 failed attempts.
 

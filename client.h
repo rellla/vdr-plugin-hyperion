@@ -18,6 +18,7 @@
 #include <ctime>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <vdr/thread.h>
@@ -99,6 +100,17 @@ public:
 	void SaveSettings(const sHyperionConfig &, const sHyperionSettings &);
 	int GetSettings(sHyperionSettings *, std::string *error);
 
+	/// state of a token request (setup)
+	enum eTokenState {
+		TOKEN_IDLE,                     ///< nothing requested
+		TOKEN_WAITING,                  ///< waiting for the answer in the web interface of Hyperion
+		TOKEN_RECEIVED,                 ///< the token was received
+		TOKEN_ERROR,                    ///< the request failed or was denied
+	};
+	void RequestToken(const sHyperionConfig &);
+	void CancelTokenRequest(void);
+	int GetTokenRequest(std::string *token, std::string *code, int *secondsLeft, std::string *error);
+
 protected:
 	virtual void Action(void);
 
@@ -134,6 +146,18 @@ private:
 	sHyperionSettings m_newSettings;                   ///< the settings to write
 	std::string m_settingsError;                       ///< error of the last request
 	unsigned int m_settingsRequest = 0;                ///< number of the last request (a newer request replaces an older one)
+
+	// token request (own thread, it waits up to some minutes for the answer)
+	static constexpr int TOKEN_TIMEOUT_MS = 185000;    ///< Hyperion answers after 3 minutes at the latest
+	static constexpr const char *TOKEN_COMMENT = "VDR hyperion plugin"; ///< name of the application shown by Hyperion
+	std::thread m_tokenThread;                         ///< runs the token request
+	std::atomic<bool> m_tokenCancel = false;           ///< cancel the token request
+	std::mutex m_tokenMutex;                           ///< protects the members below
+	int m_tokenState = TOKEN_IDLE;                     ///< see eTokenState
+	std::string m_token;                               ///< the received token
+	std::string m_tokenCode;                           ///< code of the request (shown in the web interface)
+	std::string m_tokenError;                          ///< error of the request
+	uint64_t m_tokenDeadlineMs = 0;                    ///< end of the request
 
 	// client thread only
 	sHyperionConfig m_activeConfig;                    ///< configuration of the current connection
@@ -191,6 +215,8 @@ private:
 	bool AdminLogin(const sHyperionConfig &, std::string *, std::string *);
 	bool ReadSettings(const sHyperionConfig &, const std::string &, std::string *, sHyperionSettings *, std::string *);
 	std::string AuthError(const sHyperionConfig &) const;
+	void TokenRequestThread(sHyperionConfig, std::string);
+	void SetTokenResult(int, const std::string &, const std::string &);
 	static int OpenSocket(const std::string &, int, int);
 	bool IsConnected(void) const { return m_socket >= 0; }
 	bool Send(const std::vector<uint8_t> &);
