@@ -585,12 +585,15 @@ bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool
 			esyslog("hyperion: request to the JSON server %s:%d failed: %s", srv.host.c_str(), srv.jsonPort, error.c_str());
 		m_lastJsonError = error;
 		SetError("JSON server: " + error);
-		m_jsonRetryAtMs = NowMs() + JSON_RETRY_MS;
+		// a request of the setup (maybe to another server) doesn't delay the own requests
+		if (!server)
+			m_jsonRetryAtMs = NowMs() + JSON_RETRY_MS;
 		return false;
 	}
 
 	m_lastJsonError.clear();
-	m_jsonRetryAtMs = 0;
+	if (!server)
+		m_jsonRetryAtMs = 0;
 	return true;
 }
 
