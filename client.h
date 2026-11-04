@@ -23,6 +23,7 @@
 #include <vdr/thread.h>
 
 #include "config.h"
+#include "hyperionsettings.h"
 
 class cPlugin;
 
@@ -85,6 +86,19 @@ public:
 	void GetStats(sHyperionStats *);
 	void Stop(void);
 
+	/// state of the settings of Hyperion (setup)
+	enum eSettingsState {
+		SETTINGS_IDLE,                  ///< nothing requested
+		SETTINGS_LOADING,               ///< the settings are read
+		SETTINGS_LOADED,                ///< the settings were read
+		SETTINGS_SAVING,                ///< the changed settings are written
+		SETTINGS_SAVED,                 ///< the changed settings were written (and read again)
+		SETTINGS_ERROR,                 ///< reading or writing failed
+	};
+	void LoadSettings(const sHyperionConfig &);
+	void SaveSettings(const sHyperionConfig &, const sHyperionSettings &);
+	int GetSettings(sHyperionSettings *, std::string *error);
+
 protected:
 	virtual void Action(void);
 
@@ -112,6 +126,14 @@ private:
 	sHyperionConfig m_config;                          ///< current configuration
 	bool m_changed = false;                            ///< the configuration or a state has changed
 	std::atomic<bool> m_on = true;                     ///< the user didn't switch the ambient light off
+
+	// settings of Hyperion (written by the setup, read by the thread; protected by m_mutex)
+	int m_settingsState = SETTINGS_IDLE;               ///< see eSettingsState
+	sHyperionConfig m_settingsServer;                  ///< JSON server of the request
+	sHyperionSettings m_settings;                      ///< the read settings
+	sHyperionSettings m_newSettings;                   ///< the settings to write
+	std::string m_settingsError;                       ///< error of the last request
+	unsigned int m_settingsRequest = 0;                ///< number of the last request (a newer request replaces an older one)
 
 	// client thread only
 	sHyperionConfig m_activeConfig;                    ///< configuration of the current connection
@@ -164,7 +186,9 @@ private:
 	bool StopEffect(bool);
 	void UpdateLedDevice(void);
 	bool ControlsLedDevice(const sHyperionConfig &) const;
-	bool JsonRequest(const std::vector<std::string> &, bool);
+	bool JsonRequest(const std::vector<std::string> &, bool, std::string *reply = nullptr, const sHyperionConfig *server = nullptr);
+	void HandleSettings(void);
+	bool ReadSettings(const sHyperionConfig &, std::string *, sHyperionSettings *, std::string *);
 	static int OpenSocket(const std::string &, int, int);
 	bool IsConnected(void) const { return m_socket >= 0; }
 	bool Send(const std::vector<uint8_t> &);

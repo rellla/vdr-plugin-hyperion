@@ -15,7 +15,7 @@ override CXXFLAGS += $(shell pkg-config --cflags nlohmann_json 2>/dev/null)
 LIBS = $(shell pkg-config --libs catch2-with-main)
 
 TEST_SOURCES = $(sort $(wildcard test_*.cpp))
-SOURCES_UNDER_TEST = protocol.cpp
+SOURCES_UNDER_TEST = hyperionsettings.cpp protocol.cpp
 
 OBJDIR = obj
 OBJS = $(addprefix $(OBJDIR)/, $(TEST_SOURCES:.cpp=.o) $(SOURCES_UNDER_TEST:.cpp=.o))

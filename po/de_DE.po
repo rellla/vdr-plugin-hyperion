@@ -122,6 +122,9 @@ msgstr " Bei Pause abdunkeln auf (%)"
 msgid " Hide main menu entry"
 msgstr " Hauptmenüeintrag verstecken"
 
+msgid " Settings in Hyperion..."
+msgstr " Einstellungen in Hyperion..."
+
 msgid "State"
 msgstr "Status"
 
@@ -159,3 +162,59 @@ msgstr "Fehler: -"
 #, c-format
 msgid "Error: %s (%s)"
 msgstr "Fehler: %s (%s)"
+
+msgid "Settings in Hyperion"
+msgstr "Einstellungen in Hyperion"
+
+msgid "default"
+msgstr "Standard"
+
+msgid "classic"
+msgstr "klassisch"
+
+msgid "osd"
+msgstr "OSD"
+
+msgid "letterbox"
+msgstr "Letterbox"
+
+#, c-format
+msgid " Delay (frames of %d ms)"
+msgstr " Verzögerung (Bilder à %d ms)"
+
+msgid "Smoothing"
+msgstr "Glättung"
+
+msgid " Time (ms)"
+msgstr " Zeit (ms)"
+
+msgid "Black border detection"
+msgstr "Schwarze Balken erkennen"
+
+msgid " Threshold (%)"
+msgstr " Schwellwert (%)"
+
+msgid " Mode"
+msgstr " Modus"
+
+msgid "Brightness (%)"
+msgstr "Helligkeit (%)"
+
+msgid "OK writes the settings into all instances of Hyperion."
+msgstr "OK schreibt die Einstellungen in alle Instanzen von Hyperion."
+
+#, c-format
+msgid "Error: %s"
+msgstr "Fehler: %s"
+
+msgid "OK reads the settings again."
+msgstr "OK liest die Einstellungen erneut."
+
+msgid "Writing the settings..."
+msgstr "Schreibe die Einstellungen..."
+
+msgid "Reading the settings..."
+msgstr "Lese die Einstellungen..."
+
+msgid "Settings written into Hyperion"
+msgstr "Einstellungen in Hyperion gespeichert"

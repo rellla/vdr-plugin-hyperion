@@ -9,9 +9,11 @@
  * @license{AGPL-3.0-or-later}
  */
 
+#include <algorithm>
 #include <ctime>
 
 #include <vdr/i18n.h>
+#include <vdr/skins.h>
 #include <vdr/tools.h>
 
 #include "client.h"
@@ -75,6 +77,7 @@ void cMenuSetupHyperion::Create(void)
 	int current = Current();
 	Clear();
 	m_liveItems.clear();
+	m_settingsItem = nullptr;
 
 	Add(new cMenuEditBoolItem(tr("Send video to Hyperion"), &m_enable, trVDR("no"), trVDR("yes")));
 	if (m_enable) {
@@ -92,6 +95,8 @@ void cMenuSetupHyperion::Create(void)
 			Add(new cMenuEditStrItem(tr("  Effect"), m_idleEffect, sizeof(m_idleEffect)));
 		Add(new cMenuEditIntItem(tr(" Dim on pause to (%)"), &m_pauseBrightness, 0, 100, NULL, trVDR("no")));
 		Add(new cMenuEditBoolItem(tr(" Hide main menu entry"), &m_hideMainMenuEntry, trVDR("no"), trVDR("yes")));
+		m_settingsItem = new cOsdItem(tr(" Settings in Hyperion..."));
+		Add(m_settingsItem);
 
 		// state
 		Add(new cOsdItem(" ", osUnknown, false));
@@ -172,6 +177,21 @@ void cMenuSetupHyperion::UpdateLiveItems(void)
  */
 eOSState cMenuSetupHyperion::ProcessKey(eKeys key)
 {
+	// open the settings of Hyperion with the server, as it is shown
+	if (key == kOk && !HasSubMenu() && m_settingsItem && Get(Current()) == m_settingsItem) {
+		sHyperionConfig server;
+		char host[sizeof(m_host)];
+		char token[sizeof(m_token)];
+		strn0cpy(host, m_host, sizeof(host));
+		strn0cpy(token, m_token, sizeof(token));
+		stripspace(host);
+		stripspace(token);
+		server.host = *host ? host : "127.0.0.1";
+		server.jsonPort = m_jsonPort;
+		server.token = token;
+		return AddSubMenu(new cMenuHyperionSettings(m_pClient, server));
+	}
+
 	int oldEnable = m_enable;
 	int oldIdleMode = m_idleMode;
 
@@ -222,4 +242,138 @@ void cMenuSetupHyperion::Store(void)
 	SetupStore("PauseBrightness", m_pConfig->pauseBrightness = m_pauseBrightness);
 
 	m_pClient->Configure(*m_pConfig);
+}
+
+/*****************************************************************************
+ * Settings in Hyperion
+ ****************************************************************************/
+
+/**
+ * Create the menu and read the settings
+ */
+cMenuHyperionSettings::cMenuHyperionSettings(cHyperionClient *client, const sHyperionConfig &server)
+	: cOsdMenu(tr("Settings in Hyperion"), 33),
+	  m_pClient(client),
+	  m_server(server),
+	  m_state(cHyperionClient::SETTINGS_LOADING)
+{
+	m_borderModes[sHyperionSettings::BORDER_DEFAULT] = tr("default");
+	m_borderModes[sHyperionSettings::BORDER_CLASSIC] = tr("classic");
+	m_borderModes[sHyperionSettings::BORDER_OSD] = tr("osd");
+	m_borderModes[sHyperionSettings::BORDER_LETTERBOX] = tr("letterbox");
+	m_delayTitle[0] = 0;
+
+	SetMenuCategory(mcPluginSetup);
+	m_pClient->LoadSettings(m_server);
+	Create();
+}
+
+/**
+ * Create the items (depending on the state)
+ */
+void cMenuHyperionSettings::Create(void)
+{
+	int current = Current();
+	Clear();
+
+	switch (m_state) {
+		case cHyperionClient::SETTINGS_LOADED:
+		case cHyperionClient::SETTINGS_SAVED:
+			snprintf(m_delayTitle, sizeof(m_delayTitle), tr(" Delay (frames of %d ms)"), 1000 / std::max(1, m_loaded.smoothingFrequency));
+			Add(new cMenuEditBoolItem(tr("Smoothing"), &m_smoothing, trVDR("no"), trVDR("yes")));
+			Add(new cMenuEditIntItem(tr(" Time (ms)"), &m_smoothingTimeMs, 1, 5000));
+			Add(new cMenuEditIntItem(m_delayTitle, &m_smoothingDelay, 0, 2048));
+			Add(new cMenuEditBoolItem(tr("Black border detection"), &m_blackBorder, trVDR("no"), trVDR("yes")));
+			Add(new cMenuEditIntItem(tr(" Threshold (%)"), &m_blackBorderThreshold, 0, 100));
+			Add(new cMenuEditStraItem(tr(" Mode"), &m_blackBorderMode, sHyperionSettings::BORDER_MODES, m_borderModes));
+			Add(new cMenuEditIntItem(tr("Brightness (%)"), &m_brightness, 0, 100));
+			Add(new cOsdItem(" ", osUnknown, false));
+			Add(new cOsdItem(tr("OK writes the settings into all instances of Hyperion."), osUnknown, false));
+			break;
+		case cHyperionClient::SETTINGS_ERROR:
+			Add(new cOsdItem(cString::sprintf(tr("Error: %s"), m_error.c_str()), osUnknown, false));
+			Add(new cOsdItem(" ", osUnknown, false));
+			Add(new cOsdItem(tr("OK reads the settings again."), osUnknown, false));
+			break;
+		case cHyperionClient::SETTINGS_SAVING:
+			Add(new cOsdItem(tr("Writing the settings..."), osUnknown, false));
+			break;
+		default:
+			Add(new cOsdItem(tr("Reading the settings..."), osUnknown, false));
+			break;
+	}
+
+	SetCurrent(Get(current));
+	Display();
+}
+
+/**
+ * The settings, as they are shown
+ */
+sHyperionSettings cMenuHyperionSettings::Edited(void) const
+{
+	sHyperionSettings s = m_loaded;
+	s.smoothing = m_smoothing;
+	s.smoothingTimeMs = m_smoothingTimeMs;
+	s.smoothingDelay = m_smoothingDelay;
+	s.blackBorder = m_blackBorder;
+	s.blackBorderThreshold = m_blackBorderThreshold;
+	s.blackBorderMode = m_blackBorderMode;
+	s.brightness = m_brightness;
+	return s;
+}
+
+/**
+ * Handle a key
+ */
+eOSState cMenuHyperionSettings::ProcessKey(eKeys key)
+{
+	// the client thread has finished a request
+	if (m_state == cHyperionClient::SETTINGS_LOADING || m_state == cHyperionClient::SETTINGS_SAVING) {
+		sHyperionSettings settings;
+		std::string error;
+		int state = m_pClient->GetSettings(&settings, &error);
+
+		if (state == cHyperionClient::SETTINGS_SAVED && m_state == cHyperionClient::SETTINGS_SAVING) {
+			Skins.Message(mtInfo, tr("Settings written into Hyperion"));
+			return osBack;
+		}
+		if (state == cHyperionClient::SETTINGS_LOADED || state == cHyperionClient::SETTINGS_SAVED) {
+			m_loaded = settings;
+			m_smoothing = settings.smoothing;
+			m_smoothingTimeMs = settings.smoothingTimeMs;
+			m_smoothingDelay = settings.smoothingDelay;
+			m_blackBorder = settings.blackBorder;
+			m_blackBorderThreshold = settings.blackBorderThreshold;
+			m_blackBorderMode = settings.blackBorderMode;
+			m_brightness = settings.brightness;
+			m_state = cHyperionClient::SETTINGS_LOADED;
+			Create();
+		} else if (state == cHyperionClient::SETTINGS_ERROR) {
+			m_error = error;
+			m_state = state;
+			Create();
+		}
+	}
+
+	eOSState osState = cOsdMenu::ProcessKey(key);
+	if (osState != osUnknown || key != kOk)
+		return osState;
+
+	switch (m_state) {
+		case cHyperionClient::SETTINGS_LOADED:
+			if (Edited() == m_loaded)
+				return osBack;
+			m_pClient->SaveSettings(m_server, Edited());
+			m_state = cHyperionClient::SETTINGS_SAVING;
+			Create();
+			return osContinue;
+		case cHyperionClient::SETTINGS_ERROR:
+			m_pClient->LoadSettings(m_server);
+			m_state = cHyperionClient::SETTINGS_LOADING;
+			Create();
+			return osContinue;
+		default:
+			return osContinue;
+	}
 }
