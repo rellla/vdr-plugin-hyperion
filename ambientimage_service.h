@@ -12,7 +12,7 @@
  * @code
  *   cPlugin *provider = cPluginManager::CallFirstService(AMBIENTIMAGE_SERVICE);
  *
- *   uint8_t rgb[160 * 90 * 3];
+ *   uint8_t rgb[160 * 160 * 3];
  *   AmbientImage_v1_0_t req = {};
  *   req.structSize = sizeof(req);
  *   req.width = 80;
@@ -25,11 +25,29 @@
  * @endcode
  *
  * The call waits up to timeoutMs for a frame, which is newer than lastFrame,
- * and reads the image from it in the calling thread. While nobody calls the
- * service, the output plugin doesn't take any snapshots, so the service costs
- * nothing, if it isn't used.
+ * and returns its image. A call with Data == NULL returns true, if the service
+ * is provided.
  *
- * A call with Data == NULL returns true, if the service is provided.
+ * The image:
+ * - 3 bytes per pixel in the order R, G, B, the rows from top to bottom
+ *   without gaps (the row length is imageWidth * 3 bytes)
+ * - full range (0 - 255), BT.709 primaries, the transfer of SDR video as it is
+ *   (BT.709, practically sRGB); HDR video is tone mapped to SDR with the sRGB
+ *   transfer (AMBIENT_TONEMAPPED)
+ * - it has the aspect ratio of the screen: imageWidth is the requested width,
+ *   imageHeight follows the screen. The video is placed into it as it is placed
+ *   on the screen (scaled video, letterbox or pillarbox of another aspect
+ *   ratio), the rest is black.
+ * - only the video, without OSD
+ *
+ * How the image is made is up to the output plugin: it may read it from the
+ * displayed frame in the calling thread (drmdevice does so, the display thread
+ * only hands over the buffer) or make it in its own render thread and only copy
+ * it in the call. It should cost nothing, while nobody calls the service.
+ *
+ * The version is part of the name of the service. An incompatible change gets
+ * a new name (e.g. "AmbientImage-v2.0"), new fields a new minor version; a
+ * consumer may ask for the newer service with Data == NULL and fall back.
  *
  * This header is under the MIT license (unlike the rest of the plugin), so
  * every output plugin and every consumer can include it.
@@ -82,8 +100,9 @@ typedef struct {
 	int width;                ///< in: width of the image (8 - 640), the height follows the aspect ratio of the screen
 	int timeoutMs;            ///< in: wait up to this time for a frame newer than lastFrame (0: don't wait)
 	unsigned int lastFrame;   ///< in: number of the last received frame (0: none)
-	uint8_t *rgb;             ///< in: buffer for the image (RGB24, width * height * 3 bytes)
-	int rgbSize;              ///< in: size of the buffer
+	uint8_t *rgb;             ///< in: buffer for the image (see above)
+	int rgbSize;              ///< in: size of the buffer (at least imageWidth * imageHeight * 3 bytes,
+	                          ///<     width * width * 3 is enough for a screen wider than high)
 
 	int flags;                ///< out: AMBIENT_* flags
 	unsigned int frame;       ///< out: number of the frame (with AMBIENT_NEW_IMAGE)
