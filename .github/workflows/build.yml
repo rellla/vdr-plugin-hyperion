@@ -72,7 +72,7 @@ jobs:
           if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
           $SUDO apt-get update -qq
           $SUDO apt-get install -y -qq --no-install-recommends \
-            build-essential ca-certificates git gettext pkg-config \
+            build-essential ca-certificates git gettext pkg-config nlohmann-json3-dev \
             ${{ matrix.tests && 'catch2' || '' }} ${{ matrix.packages }}
 
       - name: Checkout plugin repository

@@ -57,6 +57,7 @@ something changes):
 Requirements
 ------------
 - VDR 2.6.0 or newer
+- nlohmann/json 3.7 or newer (header only, e.g. Debian/Ubuntu: nlohmann-json3-dev)
 - an output plugin, which provides the service AmbientImage-v1.0 (drmdevice)
 - Hyperion.ng with the flatbuffers server enabled
 

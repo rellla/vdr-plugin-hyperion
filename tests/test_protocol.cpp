@@ -143,16 +143,21 @@ TEST_CASE("HyperionJson: requests", "[hyperion]")
 	CHECK(cHyperionJson::ComponentState("LEDDEVICE", true, 4) ==
 	      "{\"command\":\"componentstate\",\"componentstate\":{\"component\":\"LEDDEVICE\",\"state\":true},\"tan\":4}\n");
 	CHECK(cHyperionJson::Effect("Rainbow swirl", 150, "VDR drmdevice", 5) ==
-	      "{\"command\":\"effect\",\"effect\":{\"name\":\"Rainbow swirl\"},\"priority\":150,\"origin\":\"VDR drmdevice\",\"tan\":5}\n");
+	      "{\"command\":\"effect\",\"effect\":{\"name\":\"Rainbow swirl\"},\"origin\":\"VDR drmdevice\",\"priority\":150,\"tan\":5}\n");
 	CHECK(cHyperionJson::Clear(150, 6) == "{\"command\":\"clear\",\"priority\":150,\"tan\":6}\n");
 	CHECK(cHyperionJson::Login("0123-abcd", 1) ==
-	      "{\"command\":\"authorize\",\"subcommand\":\"login\",\"token\":\"0123-abcd\",\"tan\":1}\n");
+	      "{\"command\":\"authorize\",\"subcommand\":\"login\",\"tan\":1,\"token\":\"0123-abcd\"}\n");
 
 	SECTION("strings are escaped, a request stays one line") {
 		std::string r = cHyperionJson::Effect("a\"b\\c\nd\x01", 150, "o", 1);
 		CHECK(r.find("\"name\":\"a\\\"b\\\\c\\nd\\u0001\"") != std::string::npos);
 		CHECK(std::count(r.begin(), r.end(), '\n') == 1);
 		CHECK(r.back() == '\n');
+	}
+
+	SECTION("invalid UTF-8 doesn't throw") {
+		std::string r = cHyperionJson::Effect("a\xff", 150, "o", 1);
+		CHECK(r.find("\"name\":\"a\xef\xbf\xbd\"") != std::string::npos);
 	}
 }
 
@@ -182,9 +187,18 @@ TEST_CASE("HyperionJson: replies", "[hyperion]")
 		CHECK(error == "No Authorization");
 	}
 
+	SECTION("keys of nested objects are ignored") {
+		REQUIRE(cHyperionJson::ParseReply("{\"command\":\"config-getconfig\",\"info\":{\"error\":\"x\",\"success\":false,\"tan\":1},\"success\":true,\"tan\":8}", &tan, &success, &error));
+		CHECK(success);
+		CHECK(tan == 8);
+		CHECK(error.empty());
+	}
+
 	SECTION("no reply") {
 		CHECK_FALSE(cHyperionJson::ParseReply("{\"command\":\"instance-update\",\"data\":[]}", &tan, &success, &error));
 		CHECK_FALSE(cHyperionJson::ParseReply("", &tan, &success, &error));
+		CHECK_FALSE(cHyperionJson::ParseReply("{\"success\":tru", &tan, &success, &error));
+		CHECK_FALSE(cHyperionJson::ParseReply("[1,2]", &tan, &success, &error));
 		CHECK(tan == -1);
 	}
 }
