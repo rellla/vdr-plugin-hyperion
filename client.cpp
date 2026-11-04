@@ -296,6 +296,13 @@ void cHyperionClient::Action(void)
 				m_lastSendMs = now;
 				m_statsImages++;
 			}
+		} else if (req.flags & AMBIENT_BUFFER_TOO_SMALL) {
+			// e.g. a screen, which is higher than wide: the next frame gets a bigger buffer
+			size_t size = (size_t)req.imageWidth * req.imageHeight * 3;
+			if (size > m_rgb.size() && size <= (size_t)640 * 4096 * 3) {
+				dsyslog("hyperion: the image needs %dx%d pixels, the buffer is enlarged", req.imageWidth, req.imageHeight);
+				m_rgb.resize(size);
+			}
 		} else if ((req.flags & AMBIENT_VIDEO) && req.format[0]) {
 			// a frame was taken, but the output plugin can't read it
 			std::string error = std::string("the output plugin can't read the frame (") + req.format + ")";

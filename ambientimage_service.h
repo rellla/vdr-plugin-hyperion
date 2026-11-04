@@ -89,6 +89,7 @@ enum {
 	AMBIENT_PAUSED     = 1 << 2,  ///< the playback is paused
 	AMBIENT_DETACHED   = 1 << 3,  ///< the output device is detached (no video can be displayed)
 	AMBIENT_TONEMAPPED = 1 << 4,  ///< the frame was HDR and is tone mapped to SDR
+	AMBIENT_BUFFER_TOO_SMALL = 1 << 5, ///< rgbSize is too small, imageWidth and imageHeight tell the needed size
 };
 
 /**
@@ -106,8 +107,8 @@ typedef struct {
 
 	int flags;                ///< out: AMBIENT_* flags
 	unsigned int frame;       ///< out: number of the frame (with AMBIENT_NEW_IMAGE)
-	int imageWidth;           ///< out: width of the image (with AMBIENT_NEW_IMAGE)
-	int imageHeight;          ///< out: height of the image (with AMBIENT_NEW_IMAGE)
+	int imageWidth;           ///< out: width of the image (with AMBIENT_NEW_IMAGE or AMBIENT_BUFFER_TOO_SMALL)
+	int imageHeight;          ///< out: height of the image (with AMBIENT_NEW_IMAGE or AMBIENT_BUFFER_TOO_SMALL)
 	int sampleUs;             ///< out: time to read the image from the frame (microseconds)
 	char format[80];          ///< out: description of the frame (e.g. "NV12/SAND128 1920x1080")
 } AmbientImage_v1_0_t;
