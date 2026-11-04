@@ -6,7 +6,8 @@ A plugin for the Video Disk Recorder (VDR), which sends the displayed video to
 
 Written by Andreas Baierl <ichgeh@imkreisrum.de>.
 
-License: AGPL-3.0-or-later (see LICENSE.md).
+License: AGPL-3.0-or-later (see LICENSE.md). ambientimage_service.h (the interface to
+the output plugin) is under the MIT license.
 
 How does it work?
 -----------------
