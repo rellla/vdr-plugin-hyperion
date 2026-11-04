@@ -54,6 +54,27 @@ something changes):
   Hyperion only accepts them from the local network (and if "Local API authentication" is
   disabled, the default).
 
+Settings in Hyperion
+--------------------
+The setup page opens "Settings in Hyperion...", where some settings of Hyperion itself can be
+changed:
+
+- smoothing: on/off, the time to reach a new color and a delay of the leds (in frames of the
+  smoothing, e.g. 40 ms at 25 Hz; it helps, if the leds are ahead of a TV with a slow picture
+  processing)
+- black border detection: on/off, the threshold (max. brightness of a black border) and the mode
+- brightness of the leds
+
+The values are read from Hyperion, when the menu is opened, and written with OK. They are stored
+in the configuration of Hyperion (not in setup.conf), so the web interface shows the same values.
+Only the changed values are written, into every instance of Hyperion (all of them get the video):
+the other values of an instance stay as they are. The menu shows the values of the first enabled
+instance. The brightness is written into every color adjustment of an instance.
+
+Hyperion 2.1 or newer is needed, and a token (hyperion.Token): Hyperion only allows to read and
+write its configuration after a login. A token can be created in the web interface of Hyperion
+under Network services, API authentication.
+
 Requirements
 ------------
 - VDR 2.6.0 or newer
@@ -93,8 +114,9 @@ Setup: /etc/vdr/setup.conf
 
 	hyperion.Token =
 		authorization token of the Hyperion JSON server (empty = none).
-		Only needed for a Hyperion outside of the local network or with
-		"Local API authentication" enabled in Hyperion.
+		Needed for the settings in Hyperion, for a Hyperion outside of
+		the local network or with "Local API authentication" enabled in
+		Hyperion.
 
 	hyperion.OffAction = 0
 		what switching the ambient light off (main menu, key macro,

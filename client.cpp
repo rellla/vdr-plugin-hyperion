@@ -174,6 +174,7 @@ void cHyperionClient::Action(void)
 		}
 
 		UpdateLedDevice();
+		HandleSettings();
 
 		uint64_t now = NowMs();
 
@@ -479,21 +480,24 @@ void cHyperionClient::UpdateLedDevice(void)
  *
  * @param requests  the requests (lines)
  * @param force     send, even if the last request failed a moment ago
+ * @param reply     gets the reply of the last request (optional)
+ * @param server    host, JSON port and token of the server (default: the active configuration)
  * @return          true, if all requests succeeded
  */
-bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool force)
+bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool force, std::string *reply, const sHyperionConfig *server)
 {
 	uint64_t start = NowMs();
 	if (!force && start < m_jsonRetryAtMs)
 		return false;
 
+	const sHyperionConfig &srv = server ? *server : m_activeConfig;
 	std::string error;
 	std::string data;
 	std::vector<int> tans;
 
-	if (!m_activeConfig.token.empty()) {
+	if (!srv.token.empty()) {
 		int tan = ++m_jsonTan;
-		data += cHyperionJson::Login(m_activeConfig.token, tan);
+		data += cHyperionJson::Login(srv.token, tan);
 		tans.push_back(tan);
 	}
 	for (const auto &r : requests) {
@@ -501,9 +505,10 @@ bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool
 		size_t p = r.rfind("\"tan\":");
 		tans.push_back(p == std::string::npos ? -1 : atoi(r.c_str() + p + 6));
 	}
+	int replyTan = tans.empty() ? -1 : tans.back();
 
 	uint64_t deadline = start + JSON_TIMEOUT_MS;
-	int fd = OpenSocket(m_activeConfig.host, m_activeConfig.jsonPort, JSON_TIMEOUT_MS);
+	int fd = OpenSocket(srv.host, srv.jsonPort, JSON_TIMEOUT_MS);
 	if (fd < 0) {
 		error = cString::sprintf("cannot connect (%s)", strerror(errno));
 	} else {
@@ -541,6 +546,8 @@ bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool
 					continue;   // no reply (e.g. a notification)
 				if (!success)
 					error = replyError.empty() ? std::string("request failed") : replyError;
+				else if (reply && tan == replyTan && std::find(tans.begin(), tans.end(), tan) != tans.end())
+					*reply = line;
 				tans.erase(std::remove(tans.begin(), tans.end(), tan), tans.end());
 			}
 			if (!error.empty() || tans.empty())
@@ -565,7 +572,7 @@ bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool
 
 	if (!error.empty()) {
 		if (error != m_lastJsonError)
-			esyslog("hyperion: request to the JSON server %s:%d failed: %s", m_activeConfig.host.c_str(), m_activeConfig.jsonPort, error.c_str());
+			esyslog("hyperion: request to the JSON server %s:%d failed: %s", srv.host.c_str(), srv.jsonPort, error.c_str());
 		m_lastJsonError = error;
 		SetError("JSON server: " + error);
 		m_jsonRetryAtMs = NowMs() + JSON_RETRY_MS;
@@ -575,6 +582,132 @@ bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool
 	m_lastJsonError.clear();
 	m_jsonRetryAtMs = 0;
 	return true;
+}
+
+/**
+ * Read the settings of Hyperion (setup)
+ *
+ * The request is handled by the client thread, GetSettings() returns the state.
+ *
+ * @param server    host, JSON port and token of the server (as shown in the setup)
+ */
+void cHyperionClient::LoadSettings(const sHyperionConfig &server)
+{
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_settingsServer = server;
+		m_settingsState = SETTINGS_LOADING;
+		m_settingsError.clear();
+		m_settingsRequest++;
+		m_changed = true;
+	}
+	m_cond.notify_one();
+}
+
+/**
+ * Write the changed settings into Hyperion (setup)
+ *
+ * Only the values, which differ from the read settings, are written.
+ */
+void cHyperionClient::SaveSettings(const sHyperionConfig &server, const sHyperionSettings &settings)
+{
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_settingsServer = server;
+		m_newSettings = settings;
+		m_settingsState = SETTINGS_SAVING;
+		m_settingsError.clear();
+		m_settingsRequest++;
+		m_changed = true;
+	}
+	m_cond.notify_one();
+}
+
+/**
+ * Get the state of the settings of Hyperion (setup)
+ *
+ * @param[out] settings the read settings (with SETTINGS_LOADED and SETTINGS_SAVED)
+ * @param[out] error    the error (with SETTINGS_ERROR)
+ * @return              see eSettingsState
+ */
+int cHyperionClient::GetSettings(sHyperionSettings *settings, std::string *error)
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	*settings = m_settings;
+	*error = m_settingsError;
+	return m_settingsState;
+}
+
+/**
+ * Read the configuration of Hyperion
+ */
+bool cHyperionClient::ReadSettings(const sHyperionConfig &server, std::string *config, sHyperionSettings *settings, std::string *error)
+{
+	std::string reply;
+	if (!JsonRequest({ cHyperionSettingsJson::GetConfig(++m_jsonTan) }, true, &reply, &server)) {
+		*error = m_lastJsonError == "No Authorization" ? "no authorization, a token is needed" : m_lastJsonError;
+		return false;
+	}
+
+	if (!cHyperionSettingsJson::Read(reply, config, settings, error)) {
+		esyslog("hyperion: cannot read the settings of Hyperion: %s", error->c_str());
+		return false;
+	}
+
+	return true;
+}
+
+/**
+ * Handle a request of the setup to read or write the settings of Hyperion
+ *
+ * Before writing, the configuration is read again, so changes, which were
+ * made meanwhile (e.g. in the web interface of Hyperion), are kept.
+ */
+void cHyperionClient::HandleSettings(void)
+{
+	int state;
+	unsigned int request;
+	sHyperionConfig server;
+	sHyperionSettings from, to;
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		state = m_settingsState;
+		request = m_settingsRequest;
+		server = m_settingsServer;
+		from = m_settings;
+		to = m_newSettings;
+	}
+	if (state != SETTINGS_LOADING && state != SETTINGS_SAVING)
+		return;
+
+	std::string config;
+	sHyperionSettings settings;
+	std::string error;
+	bool ok = ReadSettings(server, &config, &settings, &error);
+
+	if (ok && state == SETTINGS_SAVING) {
+		std::string setConfig = cHyperionSettingsJson::SetConfig(config, from, to, ++m_jsonTan);
+		if (!setConfig.empty()) {
+			ok = JsonRequest({ setConfig }, true, nullptr, &server);
+			if (!ok)
+				error = m_lastJsonError == "No Authorization" ? "no authorization, a token is needed" : m_lastJsonError;
+			else
+				isyslog("hyperion: changed the settings of Hyperion");
+
+			// show the stored values
+			if (ok)
+				ok = ReadSettings(server, &config, &settings, &error);
+		}
+	}
+
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (request != m_settingsRequest)
+		return;     // a newer request is waiting
+
+	m_settingsState = !ok ? SETTINGS_ERROR : state == SETTINGS_SAVING ? SETTINGS_SAVED : SETTINGS_LOADED;
+	m_settingsError = error;
+	if (ok)
+		m_settings = settings;
 }
 
 /**
