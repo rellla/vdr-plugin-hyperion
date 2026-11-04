@@ -22,7 +22,11 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <nlohmann/json.hpp>
+
 #include "protocol.h"
+
+using json = nlohmann::json;
 
 /*****************************************************************************
  * Flatbuffers encoding
@@ -354,35 +358,19 @@ bool cHyperionProtocol::DecodeReply(const uint8_t *data, size_t size, std::strin
  * JSON-RPC
  ****************************************************************************/
 
+namespace {
+
 /**
- * Escape a string for a JSON string value
+ * One request: compact JSON, terminated by a newline
+ *
+ * Invalid UTF-8 (e.g. in an effect name) is replaced, it must not throw.
  */
-std::string cHyperionJson::Escape(const std::string &str)
+std::string Line(const json &request)
 {
-	std::string out;
-	out.reserve(str.size());
-
-	for (unsigned char c : str) {
-		switch (c) {
-			case '"':  out += "\\\""; break;
-			case '\\': out += "\\\\"; break;
-			case '\n': out += "\\n"; break;
-			case '\r': out += "\\r"; break;
-			case '\t': out += "\\t"; break;
-			default:
-				if (c < 0x20) {
-					char buf[8];
-					snprintf(buf, sizeof(buf), "\\u%04x", c);
-					out += buf;
-				} else {
-					out += (char)c;
-				}
-				break;
-		}
-	}
-
-	return out;
+	return request.dump(-1, ' ', false, json::error_handler_t::replace) + "\n";
 }
+
+} // namespace
 
 /**
  * Login with a token (needed for connections from outside of the local network,
@@ -390,8 +378,7 @@ std::string cHyperionJson::Escape(const std::string &str)
  */
 std::string cHyperionJson::Login(const std::string &token, int tan)
 {
-	return "{\"command\":\"authorize\",\"subcommand\":\"login\",\"token\":\"" + Escape(token) +
-	       "\",\"tan\":" + std::to_string(tan) + "}\n";
+	return Line({ { "command", "authorize" }, { "subcommand", "login" }, { "token", token }, { "tan", tan } });
 }
 
 /**
@@ -399,8 +386,7 @@ std::string cHyperionJson::Login(const std::string &token, int tan)
  */
 std::string cHyperionJson::ComponentState(const char *component, bool state, int tan)
 {
-	return std::string("{\"command\":\"componentstate\",\"componentstate\":{\"component\":\"") + Escape(component) +
-	       "\",\"state\":" + (state ? "true" : "false") + "},\"tan\":" + std::to_string(tan) + "}\n";
+	return Line({ { "command", "componentstate" }, { "componentstate", { { "component", component }, { "state", state } } }, { "tan", tan } });
 }
 
 /**
@@ -408,8 +394,7 @@ std::string cHyperionJson::ComponentState(const char *component, bool state, int
  */
 std::string cHyperionJson::Effect(const std::string &name, int priority, const char *origin, int tan)
 {
-	return "{\"command\":\"effect\",\"effect\":{\"name\":\"" + Escape(name) + "\"},\"priority\":" + std::to_string(priority) +
-	       ",\"origin\":\"" + Escape(origin) + "\",\"tan\":" + std::to_string(tan) + "}\n";
+	return Line({ { "command", "effect" }, { "effect", { { "name", name } } }, { "priority", priority }, { "origin", origin }, { "tan", tan } });
 }
 
 /**
@@ -417,40 +402,13 @@ std::string cHyperionJson::Effect(const std::string &name, int priority, const c
  */
 std::string cHyperionJson::Clear(int priority, int tan)
 {
-	return "{\"command\":\"clear\",\"priority\":" + std::to_string(priority) + ",\"tan\":" + std::to_string(tan) + "}\n";
+	return Line({ { "command", "clear" }, { "priority", priority }, { "tan", tan } });
 }
-
-namespace {
-
-/** Position of the value of a key in a JSON object (std::string::npos, if not found) */
-size_t FindValue(const std::string &line, const char *key)
-{
-	std::string pattern = std::string("\"") + key + "\"";
-	size_t pos = 0;
-
-	while ((pos = line.find(pattern, pos)) != std::string::npos) {
-		size_t p = pos + pattern.size();
-		while (p < line.size() && (line[p] == ' ' || line[p] == '\t'))
-			p++;
-		if (p < line.size() && line[p] == ':') {
-			p++;
-			while (p < line.size() && (line[p] == ' ' || line[p] == '\t'))
-				p++;
-			return p;
-		}
-		pos = p;
-	}
-
-	return std::string::npos;
-}
-
-} // namespace
 
 /**
  * Read the result of a reply
  *
- * Only the top level keys "tan", "success" and "error" are read. The replies
- * of the used commands don't contain other objects with these keys.
+ * Only the top level keys "tan", "success" and "error" are read.
  *
  * @param line          the reply (one line)
  * @param[out] tan      tan of the reply (-1, if missing)
@@ -464,23 +422,20 @@ bool cHyperionJson::ParseReply(const std::string &line, int *tan, bool *success,
 	*success = false;
 	error->clear();
 
-	size_t p = FindValue(line, "success");
-	if (p == std::string::npos)
+	json reply = json::parse(line, nullptr, false);
+	if (!reply.is_object() || !reply.contains("success"))
 		return false;
-	*success = line.compare(p, 4, "true") == 0;
 
-	p = FindValue(line, "tan");
-	if (p != std::string::npos)
-		*tan = atoi(line.c_str() + p);
+	const json &s = reply["success"];
+	*success = s.is_boolean() && s.get<bool>();
 
-	p = FindValue(line, "error");
-	if (p != std::string::npos && p < line.size() && line[p] == '"') {
-		for (size_t i = p + 1; i < line.size() && line[i] != '"'; i++) {
-			if (line[i] == '\\' && i + 1 < line.size())
-				i++;
-			*error += line[i];
-		}
-	}
+	auto t = reply.find("tan");
+	if (t != reply.end() && t->is_number_integer())
+		*tan = t->get<int>();
+
+	auto e = reply.find("error");
+	if (e != reply.end() && e->is_string())
+		*error = e->get<std::string>();
 
 	return true;
 }

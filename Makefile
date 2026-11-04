@@ -50,7 +50,8 @@ SOFILE = libvdr-$(PLUGIN).so
 
 ### Includes and Defines (add further entries here):
 
-INCLUDES +=
+# nlohmann/json (header only), usually found without pkg-config
+INCLUDES += $(shell $(PKG_CONFIG) --cflags nlohmann_json 2>/dev/null)
 
 DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
 

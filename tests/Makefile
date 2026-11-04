@@ -11,6 +11,7 @@ CXXFLAGS ?= -g -O1
 
 override CXXFLAGS += -std=c++17 -W -Wall -Wextra -Werror=format -I.. -isystem $(VDRINCDIR) -D_GNU_SOURCE
 override CXXFLAGS += $(shell pkg-config --cflags catch2-with-main)
+override CXXFLAGS += $(shell pkg-config --cflags nlohmann_json 2>/dev/null)
 LIBS = $(shell pkg-config --libs catch2-with-main)
 
 TEST_SOURCES = $(sort $(wildcard test_*.cpp))

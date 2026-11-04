@@ -43,7 +43,7 @@ public:
  * Creates the requests of the JSON server of Hyperion (default port 19444)
  * and reads its replies. Every message is one line of JSON, terminated by
  * a newline. Only the few commands, which are needed to control Hyperion,
- * are supported, so no JSON library is needed.
+ * are supported. The messages are created and read with nlohmann/json.
  */
 class cHyperionJson {
 public:
@@ -52,7 +52,6 @@ public:
 	static std::string Effect(const std::string &name, int priority, const char *origin, int tan);
 	static std::string Clear(int priority, int tan);
 	static bool ParseReply(const std::string &line, int *tan, bool *success, std::string *error);
-	static std::string Escape(const std::string &);
 };
 
 #endif
