@@ -47,7 +47,12 @@ public:
  */
 class cHyperionJson {
 public:
+	static constexpr const char *DEFAULT_PASSWORD = "hyperion"; ///< password of Hyperion, until the user changes it
+
 	static std::string Login(const std::string &token, int tan);
+	static std::string LoginPassword(const std::string &password, int tan);
+	static std::string NewPasswordRequired(int tan);
+	static bool ParseNewPasswordRequired(const std::string &reply, bool *required);
 	static std::string ComponentState(const char *component, bool state, int tan);
 	static std::string Effect(const std::string &name, int priority, const char *origin, int tan);
 	static std::string Clear(int priority, int tan);

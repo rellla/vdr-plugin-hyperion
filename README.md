@@ -71,9 +71,15 @@ Only the changed values are written, into every instance of Hyperion (all of the
 the other values of an instance stay as they are. The menu shows the values of the first enabled
 instance. The brightness is written into every color adjustment of an instance.
 
-Hyperion 2.1 or newer is needed, and a token (hyperion.Token): Hyperion only allows to read and
-write its configuration after a login. A token can be created in the web interface of Hyperion
-under Network services, API authentication.
+Hyperion 2.1 or newer is needed. Hyperion only allows to read and write its configuration after
+a login with admin rights:
+
+- As long as Hyperion has its default password, the plugin logs in with it, as the web interface
+  does (which doesn't ask for a password then). Nothing has to be set up.
+- If a password was set in Hyperion, a token is needed (hyperion.Token). It can be created in the
+  web interface of Hyperion under Network services, Token management.
+
+The password is never guessed: Hyperion blocks the login for 10 minutes after 10 failed attempts.
 
 Requirements
 ------------
@@ -114,9 +120,9 @@ Setup: /etc/vdr/setup.conf
 
 	hyperion.Token =
 		authorization token of the Hyperion JSON server (empty = none).
-		Needed for the settings in Hyperion, for a Hyperion outside of
-		the local network or with "Local API authentication" enabled in
-		Hyperion.
+		Needed for the settings in Hyperion, if a password was set in
+		Hyperion, for a Hyperion outside of the local network or with
+		"Local API authentication" enabled in Hyperion.
 
 	hyperion.OffAction = 0
 		what switching the ambient light off (main menu, key macro,

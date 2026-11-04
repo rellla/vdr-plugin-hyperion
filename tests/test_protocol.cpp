@@ -148,6 +148,11 @@ TEST_CASE("HyperionJson: requests", "[hyperion]")
 	CHECK(cHyperionJson::Login("0123-abcd", 1) ==
 	      "{\"command\":\"authorize\",\"subcommand\":\"login\",\"tan\":1,\"token\":\"0123-abcd\"}\n");
 
+	CHECK(cHyperionJson::LoginPassword("hyperion", 2) ==
+	      "{\"command\":\"authorize\",\"password\":\"hyperion\",\"subcommand\":\"login\",\"tan\":2}\n");
+	CHECK(cHyperionJson::NewPasswordRequired(3) ==
+	      "{\"command\":\"authorize\",\"subcommand\":\"newPasswordRequired\",\"tan\":3}\n");
+
 	SECTION("strings are escaped, a request stays one line") {
 		std::string r = cHyperionJson::Effect("a\"b\\c\nd\x01", 150, "o", 1);
 		CHECK(r.find("\"name\":\"a\\\"b\\\\c\\nd\\u0001\"") != std::string::npos);
@@ -201,4 +206,18 @@ TEST_CASE("HyperionJson: replies", "[hyperion]")
 		CHECK_FALSE(cHyperionJson::ParseReply("[1,2]", &tan, &success, &error));
 		CHECK(tan == -1);
 	}
+}
+
+TEST_CASE("HyperionJson: default password", "[hyperion]")
+{
+	bool required = false;
+
+	CHECK(cHyperionJson::ParseNewPasswordRequired(
+		"{\"command\":\"authorize-newPasswordRequired\",\"info\":{\"newPasswordRequired\":true},\"success\":true,\"tan\":3}", &required));
+	CHECK(required);
+	CHECK(cHyperionJson::ParseNewPasswordRequired(
+		"{\"command\":\"authorize-newPasswordRequired\",\"info\":{\"newPasswordRequired\":false},\"success\":true,\"tan\":3}", &required));
+	CHECK_FALSE(required);
+	CHECK_FALSE(cHyperionJson::ParseNewPasswordRequired("{\"command\":\"authorize-newPasswordRequired\",\"success\":true,\"tan\":3}", &required));
+	CHECK_FALSE(cHyperionJson::ParseNewPasswordRequired("{\"info\":{\"newPasswordRequired\":1}}", &required));
 }

@@ -186,9 +186,11 @@ private:
 	bool StopEffect(bool);
 	void UpdateLedDevice(void);
 	bool ControlsLedDevice(const sHyperionConfig &) const;
-	bool JsonRequest(const std::vector<std::string> &, bool, std::string *reply = nullptr, const sHyperionConfig *server = nullptr);
+	bool JsonRequest(const std::vector<std::string> &, bool, std::string *reply = nullptr, const sHyperionConfig *server = nullptr, const std::string *password = nullptr);
 	void HandleSettings(void);
-	bool ReadSettings(const sHyperionConfig &, std::string *, sHyperionSettings *, std::string *);
+	bool AdminLogin(const sHyperionConfig &, std::string *, std::string *);
+	bool ReadSettings(const sHyperionConfig &, const std::string &, std::string *, sHyperionSettings *, std::string *);
+	std::string AuthError(const sHyperionConfig &) const;
 	static int OpenSocket(const std::string &, int, int);
 	bool IsConnected(void) const { return m_socket >= 0; }
 	bool Send(const std::vector<uint8_t> &);
