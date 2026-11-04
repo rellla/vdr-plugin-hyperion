@@ -370,15 +370,65 @@ std::string Line(const json &request)
 	return request.dump(-1, ' ', false, json::error_handler_t::replace) + "\n";
 }
 
+/**
+ * A value of the "info" object of a reply (null, if it is missing)
+ */
+json InfoValue(const std::string &reply, const char *key)
+{
+	json root = json::parse(reply, nullptr, false);
+	if (!root.is_object())
+		return nullptr;
+
+	auto info = root.find("info");
+	if (info == root.end() || !info->is_object())
+		return nullptr;
+
+	auto value = info->find(key);
+	return value == info->end() ? json(nullptr) : *value;
+}
+
 } // namespace
 
 /**
  * Login with a token (needed for connections from outside of the local network,
- * or if the authorization is enabled for local connections)
+ * if the authorization is enabled for local connections, and for the configuration)
  */
 std::string cHyperionJson::Login(const std::string &token, int tan)
 {
 	return Line({ { "command", "authorize" }, { "subcommand", "login" }, { "token", token }, { "tan", tan } });
+}
+
+/**
+ * Login with the password of Hyperion
+ */
+std::string cHyperionJson::LoginPassword(const std::string &password, int tan)
+{
+	return Line({ { "command", "authorize" }, { "subcommand", "login" }, { "password", password }, { "tan", tan } });
+}
+
+/**
+ * Ask, if Hyperion still has its default password (needs no login)
+ */
+std::string cHyperionJson::NewPasswordRequired(int tan)
+{
+	return Line({ { "command", "authorize" }, { "subcommand", "newPasswordRequired" }, { "tan", tan } });
+}
+
+/**
+ * Read the reply of NewPasswordRequired()
+ *
+ * @param reply             the reply (one line)
+ * @param[out] required     true, if Hyperion still has its default password
+ * @return                  false, if the reply is invalid
+ */
+bool cHyperionJson::ParseNewPasswordRequired(const std::string &reply, bool *required)
+{
+	json value = InfoValue(reply, "newPasswordRequired");
+	if (!value.is_boolean())
+		return false;
+
+	*required = value.get<bool>();
+	return true;
 }
 
 /**

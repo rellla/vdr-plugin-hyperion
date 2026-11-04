@@ -482,9 +482,10 @@ void cHyperionClient::UpdateLedDevice(void)
  * @param force     send, even if the last request failed a moment ago
  * @param reply     gets the reply of the last request (optional)
  * @param server    host, JSON port and token of the server (default: the active configuration)
+ * @param password  login with this password, if the server has no token (optional)
  * @return          true, if all requests succeeded
  */
-bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool force, std::string *reply, const sHyperionConfig *server)
+bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool force, std::string *reply, const sHyperionConfig *server, const std::string *password)
 {
 	uint64_t start = NowMs();
 	if (!force && start < m_jsonRetryAtMs)
@@ -498,6 +499,10 @@ bool cHyperionClient::JsonRequest(const std::vector<std::string> &requests, bool
 	if (!srv.token.empty()) {
 		int tan = ++m_jsonTan;
 		data += cHyperionJson::Login(srv.token, tan);
+		tans.push_back(tan);
+	} else if (password && !password->empty()) {
+		int tan = ++m_jsonTan;
+		data += cHyperionJson::LoginPassword(*password, tan);
 		tans.push_back(tan);
 	}
 	for (const auto &r : requests) {
@@ -639,13 +644,61 @@ int cHyperionClient::GetSettings(sHyperionSettings *settings, std::string *error
 }
 
 /**
+ * The error of the last JSON request, an authorization error explained
+ */
+std::string cHyperionClient::AuthError(const sHyperionConfig &server) const
+{
+	if (m_lastJsonError != "No Authorization")
+		return m_lastJsonError;
+	return server.token.empty() ? "no authorization, a token is needed" : "no authorization, the token is invalid";
+}
+
+/**
+ * Find out, how to log in with admin rights (needed for the configuration)
+ *
+ * With a token, the token is used. Without a token, the default password is
+ * used, if Hyperion still has it. The web interface of Hyperion does the same,
+ * so it doesn't ask for a password then. The password is never guessed: too
+ * many failed logins block the login of Hyperion for some minutes.
+ *
+ * @param server        host, JSON port and token of the server
+ * @param[out] password the password for JsonRequest() (empty: none)
+ * @param[out] error    the error
+ * @return              true, if the login is possible
+ */
+bool cHyperionClient::AdminLogin(const sHyperionConfig &server, std::string *password, std::string *error)
+{
+	password->clear();
+	if (!server.token.empty())
+		return true;
+
+	std::string reply;
+	bool required;
+	if (!JsonRequest({ cHyperionJson::NewPasswordRequired(++m_jsonTan) }, true, &reply, &server)) {
+		*error = AuthError(server);
+		return false;
+	}
+	if (!cHyperionJson::ParseNewPasswordRequired(reply, &required)) {
+		*error = "invalid reply of the JSON server";
+		return false;
+	}
+	if (!required) {
+		*error = "Hyperion has an own password, a token is needed";
+		return false;
+	}
+
+	*password = cHyperionJson::DEFAULT_PASSWORD;
+	return true;
+}
+
+/**
  * Read the configuration of Hyperion
  */
-bool cHyperionClient::ReadSettings(const sHyperionConfig &server, std::string *config, sHyperionSettings *settings, std::string *error)
+bool cHyperionClient::ReadSettings(const sHyperionConfig &server, const std::string &password, std::string *config, sHyperionSettings *settings, std::string *error)
 {
 	std::string reply;
-	if (!JsonRequest({ cHyperionSettingsJson::GetConfig(++m_jsonTan) }, true, &reply, &server)) {
-		*error = m_lastJsonError == "No Authorization" ? "no authorization, a token is needed" : m_lastJsonError;
+	if (!JsonRequest({ cHyperionSettingsJson::GetConfig(++m_jsonTan) }, true, &reply, &server, &password)) {
+		*error = AuthError(server);
 		return false;
 	}
 
@@ -683,20 +736,21 @@ void cHyperionClient::HandleSettings(void)
 	std::string config;
 	sHyperionSettings settings;
 	std::string error;
-	bool ok = ReadSettings(server, &config, &settings, &error);
+	std::string password;
+	bool ok = AdminLogin(server, &password, &error) && ReadSettings(server, password, &config, &settings, &error);
 
 	if (ok && state == SETTINGS_SAVING) {
 		std::string setConfig = cHyperionSettingsJson::SetConfig(config, from, to, ++m_jsonTan);
 		if (!setConfig.empty()) {
-			ok = JsonRequest({ setConfig }, true, nullptr, &server);
+			ok = JsonRequest({ setConfig }, true, nullptr, &server, &password);
 			if (!ok)
-				error = m_lastJsonError == "No Authorization" ? "no authorization, a token is needed" : m_lastJsonError;
+				error = AuthError(server);
 			else
 				isyslog("hyperion: changed the settings of Hyperion");
 
 			// show the stored values
 			if (ok)
-				ok = ReadSettings(server, &config, &settings, &error);
+				ok = ReadSettings(server, password, &config, &settings, &error);
 		}
 	}
 
