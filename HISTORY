@@ -4,3 +4,35 @@ VDR Plugin 'hyperion' Revision History
 2026-10-30: Version 0.1.0
 
 - Initial revision.
+
+2026-11-04: Version 0.2.0
+
+- Use nlohmann/json for the messages of the JSON server (new build dependency,
+  header only, 3.7 or newer).
+- The setup page changes some settings of Hyperion itself (smoothing with time
+  and delay, black border detection, brightness). They are read from and stored
+  in the configuration of Hyperion (2.1 or newer) and written into every
+  instance, only the changed values.
+- Log in with the default password of Hyperion like its web interface, so the
+  settings need no token as long as no password is set. The password is never
+  guessed.
+- Request a token from Hyperion in the setup: it is accepted in the web
+  interface of Hyperion and stored at once.
+- Search Hyperion in the local network (SSDP) and take over host and ports.
+- Show test patterns on the screen and the leds (colors, edges, delay). With
+  the delay pattern, the delay of the leds is changed live.
+- New SVDRP command STAT: the state as "key: value" lines (e.g. for home
+  automation).
+- README: follow the TV with cecremote (SVDRP AMBI on CEC standby/power on).
+- A failed request of the setup (e.g. a wrong token) doesn't delay the own
+  JSON requests of the plugin anymore.
+
+2026-11-04: Version 0.2.1
+
+- ambientimage_service.h is under the MIT license, so other output plugins can
+  provide the service.
+- ambientimage_service.h describes the image exactly (byte order, range, color
+  space, placement of the video) and reports a too small buffer
+  (AMBIENT_BUFFER_TOO_SMALL).
+- Enlarge the image buffer, if the output plugin needs more (e.g. a screen,
+  which is higher than wide).
