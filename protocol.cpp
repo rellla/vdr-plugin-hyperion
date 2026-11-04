@@ -432,6 +432,37 @@ bool cHyperionJson::ParseNewPasswordRequired(const std::string &reply, bool *req
 }
 
 /**
+ * Request a token (or cancel the request with accept = false)
+ *
+ * Hyperion shows the request in its web interface. The reply comes, when the
+ * user has accepted or denied it there (or after a timeout of 3 minutes).
+ *
+ * @param comment   name of the application (at least 5 characters)
+ * @param id        code of the request (5 characters), shown in the web interface
+ * @param accept    false cancels the request
+ * @param tan       tan of the request
+ */
+std::string cHyperionJson::RequestToken(const std::string &comment, const std::string &id, bool accept, int tan)
+{
+	json request = { { "command", "authorize" }, { "subcommand", "requestToken" }, { "comment", comment }, { "id", id }, { "tan", tan } };
+	if (!accept)
+		request["accept"] = false;
+	return Line(request);
+}
+
+/**
+ * Read the token from a successful reply of RequestToken()
+ *
+ * @return  false, if the reply contains no token
+ */
+bool cHyperionJson::ParseToken(const std::string &reply, std::string *token)
+{
+	json value = InfoValue(reply, "token");
+	*token = value.is_string() ? value.get<std::string>() : "";
+	return !token->empty();
+}
+
+/**
  * Switch a component (e.g. "LEDDEVICE") on or off
  */
 std::string cHyperionJson::ComponentState(const char *component, bool state, int tan)

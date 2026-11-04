@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <ctime>
 
+#include <vdr/config.h>
 #include <vdr/i18n.h>
 #include <vdr/skins.h>
 #include <vdr/tools.h>
@@ -70,6 +71,17 @@ cMenuSetupHyperion::cMenuSetupHyperion(sHyperionConfig *config, cHyperionClient 
 }
 
 /**
+ * Close the page (a running token request is cancelled)
+ */
+cMenuSetupHyperion::~cMenuSetupHyperion()
+{
+	std::string token, code, error;
+	int seconds;
+	if (m_pClient->GetTokenRequest(&token, &code, &seconds, &error) != cHyperionClient::TOKEN_IDLE)
+		m_pClient->CancelTokenRequest();
+}
+
+/**
  * Create the items of the page
  */
 void cMenuSetupHyperion::Create(void)
@@ -78,6 +90,7 @@ void cMenuSetupHyperion::Create(void)
 	Clear();
 	m_liveItems.clear();
 	m_settingsItem = nullptr;
+	m_tokenItem = nullptr;
 
 	Add(new cMenuEditBoolItem(tr("Send video to Hyperion"), &m_enable, trVDR("no"), trVDR("yes")));
 	if (m_enable) {
@@ -88,6 +101,8 @@ void cMenuSetupHyperion::Create(void)
 		Add(new cMenuEditIntItem(tr(" Image width (pixels)"), &m_width, 16, 320));
 		Add(new cMenuEditIntItem(tr(" Port (JSON server)"), &m_jsonPort, 1, 65535));
 		Add(new cMenuEditStrItem(tr(" Token (JSON server)"), m_token, sizeof(m_token), "abcdefghijklmnopqrstuvwxyz0123456789-"));
+		AddLiveItem([this]() { return TokenText(); }, true);
+		m_tokenItem = m_liveItems.back().item;
 		Add(new cMenuEditStraItem(tr(" Switch off"), &m_offAction, 2, m_offActions));
 		Add(new cMenuEditBoolItem(tr(" Leds off when detached"), &m_ledsFollowAttach, trVDR("no"), trVDR("yes")));
 		Add(new cMenuEditStraItem(tr(" Without video"), &m_idleMode, 3, m_idleModes));
@@ -146,9 +161,9 @@ void cMenuSetupHyperion::Create(void)
 /**
  * Add an item, whose text is updated, while the menu is shown
  */
-void cMenuSetupHyperion::AddLiveItem(std::function<cString(void)> text)
+void cMenuSetupHyperion::AddLiveItem(std::function<cString(void)> text, bool selectable)
 {
-	cOsdItem *item = new cOsdItem(text(), osUnknown, false);
+	cOsdItem *item = new cOsdItem(text(), osUnknown, selectable);
 	Add(item);
 	m_liveItems.push_back({ item, std::move(text) });
 }
@@ -178,18 +193,19 @@ void cMenuSetupHyperion::UpdateLiveItems(void)
 eOSState cMenuSetupHyperion::ProcessKey(eKeys key)
 {
 	// open the settings of Hyperion with the server, as it is shown
-	if (key == kOk && !HasSubMenu() && m_settingsItem && Get(Current()) == m_settingsItem) {
-		sHyperionConfig server;
-		char host[sizeof(m_host)];
-		char token[sizeof(m_token)];
-		strn0cpy(host, m_host, sizeof(host));
-		strn0cpy(token, m_token, sizeof(token));
-		stripspace(host);
-		stripspace(token);
-		server.host = *host ? host : "127.0.0.1";
-		server.jsonPort = m_jsonPort;
-		server.token = token;
-		return AddSubMenu(new cMenuHyperionSettings(m_pClient, server));
+	if (key == kOk && !HasSubMenu() && m_settingsItem && Get(Current()) == m_settingsItem)
+		return AddSubMenu(new cMenuHyperionSettings(m_pClient, ShownServer()));
+
+	// request a token or cancel the request
+	if (key == kOk && !HasSubMenu() && m_tokenItem && Get(Current()) == m_tokenItem) {
+		std::string token, code, error;
+		int seconds;
+		if (m_pClient->GetTokenRequest(&token, &code, &seconds, &error) == cHyperionClient::TOKEN_WAITING)
+			m_pClient->CancelTokenRequest();
+		else
+			m_pClient->RequestToken(ShownServer());
+		UpdateLiveItems();
+		return osContinue;
 	}
 
 	int oldEnable = m_enable;
@@ -202,11 +218,70 @@ eOSState cMenuSetupHyperion::ProcessKey(eKeys key)
 
 	// update the state, while the menu is shown
 	if (key == kNone && !HasSubMenu() && !m_liveItems.empty() && m_liveUpdateTimer.TimedOut()) {
+		CheckToken();
 		UpdateLiveItems();
 		m_liveUpdateTimer.Set(LIVE_UPDATE_INTERVAL_MS);
 	}
 
 	return state;
+}
+
+/**
+ * The server, as it is shown (maybe not stored yet)
+ */
+sHyperionConfig cMenuSetupHyperion::ShownServer(void) const
+{
+	sHyperionConfig server;
+	char host[sizeof(m_host)];
+	char token[sizeof(m_token)];
+	strn0cpy(host, m_host, sizeof(host));
+	strn0cpy(token, m_token, sizeof(token));
+	stripspace(host);
+	stripspace(token);
+	server.host = *host ? host : "127.0.0.1";
+	server.jsonPort = m_jsonPort;
+	server.token = token;
+	return server;
+}
+
+/**
+ * Text of the item, which requests a token
+ */
+cString cMenuSetupHyperion::TokenText(void)
+{
+	std::string token, code, error;
+	int seconds;
+
+	switch (m_pClient->GetTokenRequest(&token, &code, &seconds, &error)) {
+		case cHyperionClient::TOKEN_WAITING:
+			return cString::sprintf(tr(" Accept the code %s in the web interface of Hyperion (%d s)"), code.c_str(), seconds);
+		case cHyperionClient::TOKEN_ERROR:
+			return cString::sprintf(tr(" Token request failed: %s"), error.c_str());
+		default:
+			return tr(" Request token...");
+	}
+}
+
+/**
+ * Store a received token at once (it can't be shown again)
+ */
+void cMenuSetupHyperion::CheckToken(void)
+{
+	std::string token, code, error;
+	int seconds;
+	if (m_pClient->GetTokenRequest(&token, &code, &seconds, &error) != cHyperionClient::TOKEN_RECEIVED)
+		return;
+
+	m_pClient->CancelTokenRequest();     // back to TOKEN_IDLE
+
+	strn0cpy(m_token, token.c_str(), sizeof(m_token));
+	SetupStore("Token", m_token);
+	m_pConfig->token = m_token;
+	Setup.Save();
+	m_pClient->Configure(*m_pConfig);
+
+	Create();
+	Skins.Message(mtInfo, tr("Token received and stored"));
 }
 
 /**

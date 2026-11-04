@@ -163,6 +163,20 @@ msgstr "Fehler: -"
 msgid "Error: %s (%s)"
 msgstr "Fehler: %s (%s)"
 
+#, c-format
+msgid " Accept the code %s in the web interface of Hyperion (%d s)"
+msgstr " Code %s im Webinterface von Hyperion bestätigen (%d s)"
+
+#, c-format
+msgid " Token request failed: %s"
+msgstr " Token-Anforderung fehlgeschlagen: %s"
+
+msgid " Request token..."
+msgstr " Token anfordern..."
+
+msgid "Token received and stored"
+msgstr "Token empfangen und gespeichert"
+
 msgid "Settings in Hyperion"
 msgstr "Einstellungen in Hyperion"
 

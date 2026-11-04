@@ -27,6 +27,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <random>
 
 #include <fcntl.h>
 #include <netdb.h>
@@ -64,6 +65,7 @@ cHyperionClient::cHyperionClient(void)
 
 cHyperionClient::~cHyperionClient(void)
 {
+	CancelTokenRequest();
 	Stop();
 }
 
@@ -762,6 +764,173 @@ void cHyperionClient::HandleSettings(void)
 	m_settingsError = error;
 	if (ok)
 		m_settings = settings;
+}
+
+/**
+ * Request a token from Hyperion (setup)
+ *
+ * The request runs in an own thread: Hyperion answers, when the user has
+ * accepted the request in its web interface (up to 3 minutes).
+ * GetTokenRequest() returns the state and the token.
+ *
+ * @param server    host and JSON port of the server
+ */
+void cHyperionClient::RequestToken(const sHyperionConfig &server)
+{
+	CancelTokenRequest();
+
+	// the code of the request (5 characters), shown in the web interface
+	static const char chars[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+	std::random_device rd;
+	std::string code;
+	for (int i = 0; i < 5; i++)
+		code += chars[rd() % (sizeof(chars) - 1)];
+
+	{
+		std::lock_guard<std::mutex> lock(m_tokenMutex);
+		m_tokenState = TOKEN_WAITING;
+		m_token.clear();
+		m_tokenCode = code;
+		m_tokenError.clear();
+		m_tokenDeadlineMs = NowMs() + TOKEN_TIMEOUT_MS;
+	}
+	m_tokenCancel = false;
+	m_tokenThread = std::thread(&cHyperionClient::TokenRequestThread, this, server, code);
+}
+
+/**
+ * Cancel a running token request (Hyperion removes it from its web interface)
+ */
+void cHyperionClient::CancelTokenRequest(void)
+{
+	m_tokenCancel = true;
+	if (m_tokenThread.joinable())
+		m_tokenThread.join();
+
+	std::lock_guard<std::mutex> lock(m_tokenMutex);
+	m_tokenState = TOKEN_IDLE;
+}
+
+/**
+ * Get the state of the token request (setup)
+ *
+ * @param[out] token        the token (with TOKEN_RECEIVED)
+ * @param[out] code         the code of the request, shown in the web interface
+ * @param[out] secondsLeft  remaining time of the request (with TOKEN_WAITING)
+ * @param[out] error        the error (with TOKEN_ERROR)
+ * @return                  see eTokenState
+ */
+int cHyperionClient::GetTokenRequest(std::string *token, std::string *code, int *secondsLeft, std::string *error)
+{
+	std::lock_guard<std::mutex> lock(m_tokenMutex);
+	*token = m_token;
+	*code = m_tokenCode;
+	*error = m_tokenError;
+	uint64_t now = NowMs();
+	*secondsLeft = m_tokenDeadlineMs > now ? (int)((m_tokenDeadlineMs - now + 999) / 1000) : 0;
+	return m_tokenState;
+}
+
+void cHyperionClient::SetTokenResult(int state, const std::string &token, const std::string &error)
+{
+	std::lock_guard<std::mutex> lock(m_tokenMutex);
+	m_tokenState = state;
+	m_token = token;
+	m_tokenError = error;
+}
+
+/**
+ * Thread of the token request
+ *
+ * The connection stays open, until Hyperion answers: the answer is sent on
+ * the connection of the request. A cancel withdraws the request.
+ */
+void cHyperionClient::TokenRequestThread(sHyperionConfig server, std::string code)
+{
+	int fd = OpenSocket(server.host, server.jsonPort, JSON_TIMEOUT_MS);
+	if (fd < 0) {
+		SetTokenResult(TOKEN_ERROR, "", *cString::sprintf("cannot connect to %s:%d (%s)", server.host.c_str(), server.jsonPort, strerror(errno)));
+		return;
+	}
+
+	const int tan = 1;
+	auto sendLine = [fd](const std::string &line) {
+		size_t sent = 0;
+		while (sent < line.size()) {
+			ssize_t n = send(fd, line.data() + sent, line.size() - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+			if (n > 0) {
+				sent += n;
+				continue;
+			}
+			if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+				return false;
+			struct pollfd pfd = { fd, POLLOUT, 0 };
+			if (poll(&pfd, 1, SEND_TIMEOUT_MS) <= 0)
+				return false;
+		}
+		return true;
+	};
+
+	if (!sendLine(cHyperionJson::RequestToken(TOKEN_COMMENT, code, true, tan))) {
+		close(fd);
+		SetTokenResult(TOKEN_ERROR, "", "send failed");
+		return;
+	}
+	isyslog("hyperion: requested a token, accept the request with the code %s in the web interface of Hyperion", code.c_str());
+
+	uint64_t deadline = NowMs() + TOKEN_TIMEOUT_MS;
+	std::string rx;
+	std::string token;
+	std::string error;
+
+	while (token.empty() && error.empty()) {
+		if (m_tokenCancel) {
+			sendLine(cHyperionJson::RequestToken(TOKEN_COMMENT, code, false, tan + 1));
+			close(fd);
+			dsyslog("hyperion: cancelled the token request");
+			return;
+		}
+		if (NowMs() >= deadline) {
+			error = "no answer";
+			break;
+		}
+
+		struct pollfd pfd = { fd, POLLIN, 0 };
+		if (poll(&pfd, 1, 200) <= 0)
+			continue;
+
+		char buf[4096];
+		ssize_t n = recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
+		if (n > 0)
+			rx.append(buf, n);
+		else if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
+			error = "connection closed by the server";
+
+		size_t eol;
+		while (token.empty() && (eol = rx.find('\n')) != std::string::npos) {
+			std::string line = rx.substr(0, eol);
+			rx.erase(0, eol + 1);
+
+			int replyTan;
+			bool success;
+			std::string replyError;
+			if (!cHyperionJson::ParseReply(line, &replyTan, &success, &replyError) || replyTan != tan)
+				continue;
+			if (!success)
+				error = replyError.empty() ? std::string("the request was denied") : replyError;
+			else if (!cHyperionJson::ParseToken(line, &token))
+				error = "the reply contains no token";
+		}
+	}
+	close(fd);
+
+	if (!token.empty()) {
+		isyslog("hyperion: received a token from Hyperion");
+		SetTokenResult(TOKEN_RECEIVED, token, "");
+	} else {
+		esyslog("hyperion: token request failed: %s", error.c_str());
+		SetTokenResult(TOKEN_ERROR, "", error);
+	}
 }
 
 /**
