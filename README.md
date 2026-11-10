@@ -32,6 +32,10 @@ No grabber is needed in Hyperion.
   device is detached, the priority is cleared and the connection is closed, so the leds fall back
   to the lower priorities (e.g. an effect).
 - If Hyperion isn't reachable, the plugin retries in the background with an increasing delay.
+- A message is only sent, after Hyperion has replied to the last one. Hyperion built with Qt5
+  (up to 2.2.x) corrupts a message, which arrives together with the next one ("Invalid FlatBuffer
+  message received", the leds stay dark). If Hyperion is slow, images are skipped instead of
+  queued.
 
 Hyperion is controlled with its JSON server (default port 19444, short connections only when
 something changes):

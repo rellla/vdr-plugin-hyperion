@@ -868,9 +868,12 @@ bool cHyperionClient::HandleTest(void)
 			if (SendImage()) {
 				m_imageSent = true;
 				m_lastSendMs = now;
+			} else {
+				m_lastSendMs = 0;   // not sent: again in the next loop
 			}
 		}
-		ReceiveReplies();
+		if (IsConnected())
+			ReceiveReplies();
 	}
 
 	Wait(100);
@@ -1251,6 +1254,9 @@ bool cHyperionClient::Connect(void)
 	m_rxBuffer.clear();
 	m_lastServerError.clear();
 	m_imageSent = false;
+	m_pendingReplies = 0;
+	m_replyReceived = false;
+	m_noReplies = false;
 
 	if (!Send(cHyperionProtocol::EncodeRegister(ORIGIN, m_activeConfig.priority)))
 		return false;
@@ -1272,27 +1278,83 @@ void cHyperionClient::Disconnect(bool clear)
 	if (!IsConnected())
 		return;
 
-	if (clear && m_imageSent) {
+	// the clear must not arrive together with the last image (see Send())
+	if (clear && m_imageSent && WaitForReply() && IsConnected()) {
 		std::vector<uint8_t> msg = cHyperionProtocol::EncodeClear(m_activeConfig.priority);
 		send(m_socket, msg.data(), msg.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
 	}
+	if (!IsConnected())
+		return;     // closed while waiting for the reply
 
 	close(m_socket);
 	m_socket = -1;
 	m_imageSent = false;
 	m_rxBuffer.clear();
+	m_pendingReplies = 0;
 
 	dsyslog("hyperion: disconnected from %s:%d", m_activeConfig.host.c_str(), m_activeConfig.port);
 }
 
 /**
+ * Wait for the reply of the last sent message
+ *
+ * Hyperion answers every message. Waits at most REPLY_WAIT_MS. A reply, which
+ * doesn't come within REPLY_LOST_MS, is given up (the connection stays).
+ *
+ * @return  true, if the next message can be sent
+ */
+bool cHyperionClient::WaitForReply(void)
+{
+	uint64_t deadline = NowMs() + REPLY_WAIT_MS;
+
+	while (m_pendingReplies > 0) {
+		ReceiveReplies();
+		if (!IsConnected())
+			return false;
+		if (m_pendingReplies <= 0)
+			break;
+
+		uint64_t now = NowMs();
+		if (now - m_pendingSinceMs >= REPLY_LOST_MS) {
+			// a server, which never replies (not Hyperion?), gets the messages without waiting
+			m_noReplies = !m_replyReceived;
+			dsyslog("hyperion: no reply from %s:%d%s", m_activeConfig.host.c_str(), m_activeConfig.port,
+				m_noReplies ? ", no longer waiting for replies" : ", continuing");
+			m_pendingReplies = 0;
+			break;
+		}
+		if (now >= deadline)
+			return false;   // this message is skipped, the next one may be sent
+
+		struct pollfd pfd = { m_socket, POLLIN, 0 };
+		poll(&pfd, 1, (int)std::min<uint64_t>(deadline - now, 20));
+	}
+
+	return true;
+}
+
+/**
  * Send a message
+ *
+ * A message is only sent, after the reply of the last one was received:
+ * Hyperion built with Qt5 corrupts a message, if the next one is already in
+ * its receive buffer (FlatBufferClient::readyRead() removes the message from
+ * the buffer before it is verified, QByteArray::remove() of Qt5 moves the
+ * next message to its place). It reports "Invalid FlatBuffer message
+ * received" then, e.g. for the registration, which is sent together with
+ * the first image.
  *
  * Waits at most SEND_TIMEOUT_MS. A message which can't be sent completely
  * would break the stream, so the connection is closed then.
+ *
+ * @return  false, if the message wasn't sent (the reply of the last one is
+ *          outstanding or the connection was closed)
  */
 bool cHyperionClient::Send(const std::vector<uint8_t> &msg)
 {
+	if (!m_noReplies && !WaitForReply())
+		return false;
+
 	size_t sent = 0;
 	uint64_t timeout = NowMs() + SEND_TIMEOUT_MS;
 
@@ -1321,6 +1383,9 @@ bool cHyperionClient::Send(const std::vector<uint8_t> &msg)
 			return false;
 		}
 	}
+
+	if (!m_noReplies && m_pendingReplies++ == 0)
+		m_pendingSinceMs = NowMs();
 
 	return true;
 }
@@ -1365,6 +1430,11 @@ void cHyperionClient::ReceiveReplies(void)
 		}
 		if (m_rxBuffer.size() - pos - 4 < size)
 			break;
+
+		// a reply to the last sent message (Hyperion sends one per message)
+		m_replyReceived = true;
+		if (m_pendingReplies > 0 && --m_pendingReplies > 0)
+			m_pendingSinceMs = NowMs();
 
 		std::string error;
 		int video, registered;

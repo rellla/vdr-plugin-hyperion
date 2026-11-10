@@ -88,6 +88,8 @@ private:
 	static constexpr int KEEPALIVE_MS = 1000;          ///< resend the last image, if the video doesn't change (pause)
 	static constexpr int CONNECT_TIMEOUT_MS = 1000;    ///< timeout of a connection attempt
 	static constexpr int SEND_TIMEOUT_MS = 500;        ///< max. time to send a message
+	static constexpr int REPLY_WAIT_MS = 200;          ///< max. time to wait for the reply of the last message before the next one
+	static constexpr int REPLY_LOST_MS = 2000;         ///< a reply, which doesn't come within this time, is given up
 	static constexpr int RECONNECT_MIN_MS = 1000;      ///< first retry after a failed connection
 	static constexpr int RECONNECT_MAX_MS = 30000;     ///< max. time between connection attempts
 	static constexpr int IDLE_RELEASE_MS = 2000;       ///< give the leds back, if no video is shown for this time (not with every channel switch)
@@ -147,6 +149,10 @@ private:
 	bool m_connectErrorLogged = false;                 ///< a failed connection was already logged
 	std::vector<uint8_t> m_rxBuffer;                   ///< received, not yet decoded data
 	std::string m_lastServerError;                     ///< last logged error of the server
+	int m_pendingReplies = 0;                          ///< sent messages, whose reply is outstanding
+	uint64_t m_pendingSinceMs = 0;                     ///< time of the oldest outstanding reply
+	bool m_replyReceived = false;                      ///< the server has replied on this connection
+	bool m_noReplies = false;                          ///< the server doesn't reply, don't wait for replies
 	std::vector<uint8_t> m_rgb;                        ///< buffer for the service
 	std::vector<uint8_t> m_image;                      ///< current rgb image
 	int m_imageWidth = 0;                              ///< width of the current image
@@ -198,6 +204,7 @@ private:
 	static int OpenSocket(const std::string &, int, int);
 	bool IsConnected(void) const { return m_socket >= 0; }
 	bool Send(const std::vector<uint8_t> &);
+	bool WaitForReply(void);
 	bool SendImage(void);
 	int PauseBrightness(uint64_t) const;
 	void ReceiveReplies(void);
