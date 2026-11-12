@@ -36,3 +36,10 @@ VDR Plugin 'hyperion' Revision History
   (AMBIENT_BUFFER_TOO_SMALL).
 - Enlarge the image buffer, if the output plugin needs more (e.g. a screen,
   which is higher than wide).
+
+2026-11-12: Version 0.2.2
+
+- Send a message to Hyperion only after the reply of the last one. Hyperion
+  built with Qt5 lost a message, which arrived together with the next one
+  ("Invalid FlatBuffer message received"): the registration was lost and the
+  leds stayed dark.
